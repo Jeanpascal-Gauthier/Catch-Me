@@ -4,6 +4,12 @@ module Main
   MAX_HIGH_SCORES = 5
   PLAYER_DRAGON = "dragon"
   ENEMY_DRAGON = "dragon-green"
+  INTRO_DURATION = 1.2 * FPS
+  LABEL_SLIDE = 400
+  REVEAL_DURATION = 0.5 * FPS
+  REVEAL_STAGGER = 5
+  PLAYER_HOME_X = 120
+  PLAYER_HOME_Y = 280
 
   BACKGROUND_PATH = "sprites/background-sky.png"
   BACKGROUND_SPEED = 1.2
@@ -268,97 +274,115 @@ module Main
     end
   end
 
+  def title_labels(args, drift = 0)
+    x = 40 - drift * (args.grid.w + LABEL_SLIDE)
+
+    [
+      { x: x, y: args.grid.h - 40, text: "Target Practice", size_px: 34 },
+      { x: x, y: args.grid.h - 88, text: "Hit the targets!" },
+      { x: x, y: args.grid.h - 120, text: "by Jean-Pascal Gauthier" },
+      { x: x, y: 120, text: "Arrows or WASD to move | Z or J to fire | gamepad works too" },
+      { x: x, y: 80, text: "Fire to start", size_px: 26 },
+    ]
+  end
+
+  def hud_labels(args, reveal = 1)
+    hidden = (1 - reveal) * LABEL_SLIDE
+
+    [
+      {
+        x: 40 - hidden,
+        y: args.grid.h - 40,
+        text: "Score: #{args.state.score}",
+        size_px: 30,
+      },
+      {
+        x: args.grid.w - 40 + hidden,
+        y: args.grid.h - 40,
+        text: "Time Left: #{(args.state.timer / FPS).round}",
+        size_px: 26,
+        anchor_x: 1,
+      },
+    ]
+  end
+
+  def intro_playing?(args)
+    Kernel.tick_count - args.state.intro_started_at < INTRO_DURATION
+  end
+
+  def play_intro(args)
+    elapsed = Kernel.tick_count - args.state.intro_started_at
+    progress = ease_out((elapsed / INTRO_DURATION).clamp(0, 1))
+
+    args.state.player.x = (progress * (PLAYER_HOME_X + args.state.player.w)) - args.state.player.w
+    args.outputs.sprites << args.state.player
+    args.outputs.labels << title_labels(args, progress)
+    args.outputs.labels << hud_labels(args, progress)
+  end
+
+  def reveal_progress(started_at, index)
+    elapsed = Kernel.tick_count - started_at - (index * REVEAL_STAGGER)
+    ease_out((elapsed / REVEAL_DURATION).clamp(0, 1))
+  end
+
   def title_tick args
+    render_background(args)
+
     if fire_input?(args)
       args.outputs.sounds << "sounds/game-over.wav"
       args.state.scene = "gameplay"
       return
     end
 
+    args.outputs.labels << title_labels(args)
+  end
+
+  def game_over_labels(args)
+    left = []
+    left << { y: args.grid.h - 40, text: "Game Over!", size_px: 42 }
+    left << { y: args.grid.h - 90, text: "Score: #{args.state.score}", size_px: 30 }
+    left << { y: args.grid.h - 132, text: "Fire to restart", size_px: 26 }
+
+    if args.state.new_high_score
+      left << { y: args.grid.h - 174, text: "New high-score!", size_px: 28 }
+    end
+
+    right = []
+    right << { y: args.grid.h - 40, text: "High Scores", size_px: 26 }
+    args.state.high_scores.each_with_index do |entry, i|
+      right << {
+        y: args.grid.h - 76 - (i * 30),
+        text: "#{i + 1}. #{entry.score}  #{entry.date}",
+        size_px: 22,
+      }
+    end
+
+    started_at = args.state.game_over_started_at
     labels = []
-    labels << {
-      x: 40,
-      y: args.grid.h - 40,
-      text: "Target Practice",
-      size_px: 34,
-    }
-    labels << {
-      x: 40,
-      y: args.grid.h - 88,
-      text: "Hit the targets!",
-    }
-    labels << {
-      x: 40,
-      y: args.grid.h - 120,
-      text: "by Jean-Pascal Gauthier",
-    }
-    labels << {
-      x: 40,
-      y: 120,
-      text: "Arrows or WASD to move | Z or J to fire | gamepad works too",
-    }
-    labels << {
-      x: 40,
-      y: 80,
-      text: "Fire to start",
-      size_px: 26,
-    }
-    args.outputs.labels << labels
+
+    left.each_with_index do |label, i|
+      hidden = (1 - reveal_progress(started_at, i)) * LABEL_SLIDE
+      labels << label.merge(x: 40 - hidden)
+    end
+
+    right.each_with_index do |label, i|
+      hidden = (1 - reveal_progress(started_at, i)) * LABEL_SLIDE
+      labels << label.merge(x: args.grid.w - 40 + hidden, anchor_x: 1)
+    end
+
+    labels
   end
 
   def game_over_tick(args)
+    render_background(args)
+
     args.state.high_scores ||= load_high_scores
+    args.state.game_over_started_at ||= Kernel.tick_count
     args.state.timer -= 1
 
     try_save_high_score(args)
 
-    labels = []
-    labels << {
-      x: 40,
-      y: args.grid.h - 40,
-      text: "Game Over!",
-      size_px: 42,
-    }
-    labels << {
-      x: 40,
-      y: args.grid.h - 90,
-      text: "Score: #{args.state.score}",
-      size_px: 30,
-    }
-    labels << {
-      x: 40,
-      y: args.grid.h - 132,
-      text: "Fire to restart",
-      size_px: 26,
-    }
-
-    if args.state.new_high_score
-      labels << {
-        x: 40,
-        y: args.grid.h - 174,
-        text: "New high-score!",
-        size_px: 28,
-      }
-    end
-
-    labels << {
-      x: args.grid.w - 40,
-      y: args.grid.h - 40,
-      text: "High Scores",
-      size_px: 26,
-      anchor_x: 1,
-    }
-    args.state.high_scores.each_with_index do |entry, i|
-      labels << {
-        x: args.grid.w - 40,
-        y: args.grid.h - 76 - (i * 30),
-        text: "#{i + 1}. #{entry.score}  #{entry.date}",
-        size_px: 22,
-        anchor_x: 1,
-      }
-    end
-
-    args.outputs.labels << labels
+    args.outputs.labels << game_over_labels(args)
 
     if args.state.timer < -30 && fire_input?(args)
       DR.reset
@@ -369,8 +393,8 @@ module Main
     render_background(args)
 
     args.state.player ||= {
-      x: 120,
-      y: 280,
+      x: PLAYER_HOME_X,
+      y: PLAYER_HOME_Y,
       w: 100,
       h: 80,
       speed: 12,
@@ -384,6 +408,12 @@ module Main
     args.state.next_spawn_at ||= 0
     args.state.score ||= 0
     args.state.timer ||= ROUND_DURATION
+    args.state.intro_started_at ||= Kernel.tick_count
+
+    if intro_playing?(args)
+      play_intro(args)
+      return
+    end
 
     args.state.timer -= 1
 
@@ -474,21 +504,7 @@ module Main
       args.state.targets,
     ]
 
-    labels = []
-    labels << {
-      x: 40,
-      y: args.grid.h - 40,
-      text: "Score: #{args.state.score}",
-      size_px: 30,
-    }
-    labels << {
-      x: args.grid.w - 40,
-      y: args.grid.h - 40,
-      text: "Time Left: #{(args.state.timer / FPS).round}",
-      size_px: 26,
-      anchor_x: 1,
-    }
-    args.outputs.labels << labels
+    args.outputs.labels << hud_labels(args)
   end
 
   def tick args
