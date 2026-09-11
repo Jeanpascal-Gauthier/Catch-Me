@@ -82,6 +82,44 @@ module Main
     args.state.player.y = args.state.player.y.clamp(0, args.grid.h - args.state.player.h)
   end
 
+  def title_tick args
+    if fire_input?(args)
+      args.outputs.sounds << "sounds/game-over.wav"
+      args.state.scene = "gameplay"
+      return
+    end
+
+    labels = []
+    labels << {
+      x: 40,
+      y: args.grid.h - 40,
+      text: "Target Practice",
+      size_px: 34,
+    }
+    labels << {
+      x: 40,
+      y: args.grid.h - 88,
+      text: "Hit the targets!",
+    }
+    labels << {
+      x: 40,
+      y: args.grid.h - 120,
+      text: "by Jean-Pascal Gauthier",
+    }
+    labels << {
+      x: 40,
+      y: 120,
+      text: "Arrows or WASD to move | Z or J to fire | gamepad works too",
+    }
+    labels << {
+      x: 40,
+      y: 80,
+      text: "Fire to start",
+      size_px: 26,
+    }
+    args.outputs.labels << labels
+  end
+
   def game_over_tick(args)
     args.state.high_scores ||= load_high_scores
     args.state.timer -= 1
@@ -239,7 +277,7 @@ module Main
       args.audio[:music] = { input: "sounds/flight.ogg", looping: true }
     end
 
-    args.state.scene ||= "gameplay"
+    args.state.scene ||= "title"
 
     send("#{args.state.scene}_tick", args)
   end
