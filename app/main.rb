@@ -8,6 +8,11 @@ module Main
   LABEL_SLIDE = 400
   REVEAL_DURATION = 0.5 * FPS
   REVEAL_STAGGER = 5
+  SCRIM_ALPHA = 150
+  ARCADE_YELLOW = { r: 255, g: 209, b: 71 }
+  ARCADE_WHITE = { r: 245, g: 245, b: 255 }
+  ARCADE_CYAN = { r: 120, g: 231, b: 255 }
+  ARCADE_SHADOW = { r: 12, g: 8, b: 30 }
   PLAYER_HOME_X = 120
   PLAYER_HOME_Y = 280
 
@@ -274,36 +279,67 @@ module Main
     end
   end
 
-  def title_labels(args, drift = 0)
-    x = 40 - drift * (args.grid.w + LABEL_SLIDE)
+  def blinking?
+    Kernel.tick_count % 60 < 40
+  end
 
-    [
-      { x: x, y: args.grid.h - 40, text: "Target Practice", size_px: 34 },
-      { x: x, y: args.grid.h - 88, text: "Hit the targets!" },
-      { x: x, y: args.grid.h - 120, text: "by Jean-Pascal Gauthier" },
-      { x: x, y: 120, text: "Arrows or WASD to move | Z or J to fire | gamepad works too" },
-      { x: x, y: 80, text: "Fire to start", size_px: 26 },
-    ]
+  def shadowed(labels)
+    result = []
+    labels.each do |label|
+      result << label.merge(ARCADE_SHADOW).merge(x: label.x + 3, y: label.y - 3)
+      result << label
+    end
+    result
+  end
+
+  def render_scrim(args, alpha)
+    return if alpha <= 0
+
+    args.outputs.sprites << {
+      x: 0,
+      y: 0,
+      w: args.grid.w,
+      h: args.grid.h,
+      path: :solid,
+      r: 8,
+      g: 6,
+      b: 24,
+      a: alpha,
+    }
+  end
+
+  def title_labels(args, drift = 0)
+    cx = (args.grid.w / 2) - drift * (args.grid.w + LABEL_SLIDE)
+    top = args.grid.h
+
+    labels = []
+    labels << { x: cx, y: top - 120, text: "TARGET PRACTICE", size_px: 64, anchor_x: 0.5 }.merge(ARCADE_YELLOW)
+    labels << { x: cx, y: top - 200, text: "HIT THE TARGETS!", size_px: 28, anchor_x: 0.5 }.merge(ARCADE_WHITE)
+    labels << { x: cx, y: 220, text: "ARROWS / WASD TO MOVE     Z / J TO FIRE     GAMEPAD OK", size_px: 20, anchor_x: 0.5 }.merge(ARCADE_CYAN)
+    labels << { x: cx, y: 150, text: "FIRE TO START", size_px: 32, anchor_x: 0.5 }.merge(ARCADE_YELLOW) if blinking?
+    labels << { x: cx, y: 70, text: "BY JEAN-PASCAL GAUTHIER", size_px: 18, anchor_x: 0.5 }.merge(ARCADE_WHITE)
+
+    shadowed(labels)
   end
 
   def hud_labels(args, reveal = 1)
     hidden = (1 - reveal) * LABEL_SLIDE
 
-    [
+    shadowed([
       {
         x: 40 - hidden,
         y: args.grid.h - 40,
-        text: "Score: #{args.state.score}",
+        text: "SCORE  #{args.state.score}",
         size_px: 30,
-      },
+      }.merge(ARCADE_WHITE),
       {
         x: args.grid.w - 40 + hidden,
         y: args.grid.h - 40,
-        text: "Time Left: #{(args.state.timer / FPS).round}",
-        size_px: 26,
+        text: "TIME  #{(args.state.timer / FPS).round}",
+        size_px: 30,
         anchor_x: 1,
-      },
-    ]
+      }.merge(ARCADE_YELLOW),
+    ])
   end
 
   def intro_playing?(args)
@@ -314,6 +350,7 @@ module Main
     elapsed = Kernel.tick_count - args.state.intro_started_at
     progress = ease_out((elapsed / INTRO_DURATION).clamp(0, 1))
 
+    render_scrim(args, SCRIM_ALPHA * (1 - progress))
     args.state.player.x = (progress * (PLAYER_HOME_X + args.state.player.w)) - args.state.player.w
     args.outputs.sprites << args.state.player
     args.outputs.labels << title_labels(args, progress)
@@ -327,6 +364,7 @@ module Main
 
   def title_tick args
     render_background(args)
+    render_scrim(args, SCRIM_ALPHA)
 
     if fire_input?(args)
       args.outputs.sounds << "sounds/game-over.wav"
@@ -338,43 +376,49 @@ module Main
   end
 
   def game_over_labels(args)
-    left = []
-    left << { y: args.grid.h - 40, text: "Game Over!", size_px: 42 }
-    left << { y: args.grid.h - 90, text: "Score: #{args.state.score}", size_px: 30 }
-    left << { y: args.grid.h - 132, text: "Fire to restart", size_px: 26 }
+    cx = args.grid.w / 2
+    top = args.grid.h
 
-    if args.state.new_high_score
-      left << { y: args.grid.h - 174, text: "New high-score!", size_px: 28 }
-    end
+    lines = []
+    lines << { y: top - 110, text: "GAME OVER", size_px: 64 }.merge(ARCADE_YELLOW)
+    lines << { y: top - 175, text: "SCORE  #{args.state.score}", size_px: 36 }.merge(ARCADE_WHITE)
+    lines << { y: top - 225, text: "NEW HIGH SCORE!", size_px: 28 }.merge(ARCADE_CYAN) if args.state.new_high_score
+    lines << { y: top - 290, text: "HIGH SCORES", size_px: 26 }.merge(ARCADE_CYAN)
 
-    right = []
-    right << { y: args.grid.h - 40, text: "High Scores", size_px: 26 }
     args.state.high_scores.each_with_index do |entry, i|
-      right << {
-        y: args.grid.h - 76 - (i * 30),
-        text: "#{i + 1}. #{entry.score}  #{entry.date}",
+      lines << {
+        y: top - 330 - (i * 30),
+        text: "#{i + 1}.   #{entry.score}    #{entry.date}",
         size_px: 22,
-      }
+      }.merge(ARCADE_WHITE)
     end
 
     started_at = args.state.game_over_started_at
     labels = []
 
-    left.each_with_index do |label, i|
+    lines.each_with_index do |line, i|
       hidden = (1 - reveal_progress(started_at, i)) * LABEL_SLIDE
-      labels << label.merge(x: 40 - hidden)
+      direction = i.even? ? -1 : 1
+      labels << line.merge(x: cx + (hidden * direction), anchor_x: 0.5)
     end
 
-    right.each_with_index do |label, i|
-      hidden = (1 - reveal_progress(started_at, i)) * LABEL_SLIDE
-      labels << label.merge(x: args.grid.w - 40 + hidden, anchor_x: 1)
+    if blinking?
+      labels << {
+        x: cx,
+        y: 80,
+        text: "FIRE TO RESTART",
+        size_px: 30,
+        anchor_x: 0.5,
+        a: reveal_progress(started_at, lines.length) * 255,
+      }.merge(ARCADE_YELLOW)
     end
 
-    labels
+    shadowed(labels)
   end
 
   def game_over_tick(args)
     render_background(args)
+    render_scrim(args, SCRIM_ALPHA)
 
     args.state.high_scores ||= load_high_scores
     args.state.game_over_started_at ||= Kernel.tick_count
