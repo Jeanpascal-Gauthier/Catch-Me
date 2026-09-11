@@ -2,6 +2,23 @@ module Main
   FPS = 60
   HIGH_SCORES_FILE = "high-scores.txt"
   MAX_HIGH_SCORES = 5
+  ENEMY_FIREBALL_SPEED = 8
+  ENEMY_FIRE_DELAY_MIN = 1.2 * FPS
+  ENEMY_FIRE_DELAY_MAX = 3.0 * FPS
+  ENEMY_SIZE = 64
+  ENEMY_ZONE_LEFT_RATIO = 0.55
+  ENEMY_SPEED_MIN = 0.6
+  ENEMY_SPEED_MAX = 2.4
+  ENEMY_TURN_DELAY_MIN = 0.5 * FPS
+  ENEMY_TURN_DELAY_MAX = 1.8 * FPS
+  ENEMY_ENTRY_DURATION_MIN = 0.8 * FPS
+  ENEMY_ENTRY_DURATION_MAX = 1.4 * FPS
+  ENEMY_ENTRY_SWEEP = 220
+  ROUND_DURATION = 120 * FPS
+  ENEMY_COUNT_START = 3
+  ENEMY_COUNT_MAX = 12
+  ENEMY_RAMP_INTERVAL = 12 * FPS
+  ENEMY_SPAWN_STAGGER = 0.4 * FPS
 
   def load_high_scores
     contents = DR.read_file(HIGH_SCORES_FILE)
@@ -39,23 +56,13 @@ module Main
     save_high_scores(args.state.high_scores)
   end
 
-  def spawn_target(args)
-    size = 64
-    {
-      x: rand(args.grid.w * 0.4) + args.grid.w * 0.6,
-      y: rand(args.grid.h - size * 2) + size,
-      w: size,
-      h: size,
-      path: 'sprites/target.png',
-    }
-  end
-
   def fire_input?(args)
     args.inputs.keyboard.key_down.z ||
       args.inputs.keyboard.key_down.j ||
       args.inputs.controller_one.key_down.a
   end
 
+  # Creating a vector to make player speed consistent 
   def handle_player_movement(args)
     dx = 0
     dy = 0
@@ -80,6 +87,157 @@ module Main
 
     args.state.player.x = args.state.player.x.clamp(0, args.grid.w - args.state.player.w)
     args.state.player.y = args.state.player.y.clamp(0, args.grid.h - args.state.player.h)
+  end
+
+  def dragon_sprite_path(start_tick)
+    index = start_tick.frame_index(count: 6, hold_for: 8, repeat: true)
+    "sprites/misc/dragon-#{index}.png"
+  end
+
+  # This is so enemies dont go too far left
+  def enemy_zone(args)
+    left = args.grid.w * ENEMY_ZONE_LEFT_RATIO
+    {
+      left: left,
+      right: args.grid.w - ENEMY_SIZE,
+      bottom: 0,
+      top: args.grid.h - ENEMY_SIZE,
+    }
+  end
+
+  def enemy_turn_delay
+    rand(ENEMY_TURN_DELAY_MAX - ENEMY_TURN_DELAY_MIN) + ENEMY_TURN_DELAY_MIN
+  end
+
+  def random_enemy_velocity
+    speed = rand(ENEMY_SPEED_MAX - ENEMY_SPEED_MIN) + ENEMY_SPEED_MIN
+    angle = rand(360)
+    [speed * Math.cos(angle * Math::PI / 180), speed * Math.sin(angle * Math::PI / 180)]
+  end
+
+  def wander_target(args, target)
+    if Kernel.tick_count >= target.next_turn_at
+      target.dx, target.dy = random_enemy_velocity
+      target.next_turn_at = Kernel.tick_count + enemy_turn_delay
+    end
+
+    zone = enemy_zone(args)
+    target.x += target.dx
+    target.y += target.dy
+
+    if target.x < zone.left || target.x > zone.right
+      target.dx = -target.dx
+      target.x = target.x.clamp(zone.left, zone.right)
+    end
+
+    if target.y < zone.bottom || target.y > zone.top
+      target.dy = -target.dy
+      target.y = target.y.clamp(zone.bottom, zone.top)
+    end
+  end
+
+  def ease_out(t)
+    1 - ((1 - t) * (1 - t))
+  end
+
+  def build_entry_path(args, dest_x, dest_y)
+    zone = enemy_zone(args)
+    start_y = rand(2) == 0 ? args.grid.h + ENEMY_SIZE : -ENEMY_SIZE
+    sweep = rand(2) == 0 ? -ENEMY_ENTRY_SWEEP : ENEMY_ENTRY_SWEEP
+    start_x = (dest_x + sweep).clamp(zone.left, zone.right)
+
+    [
+      { x: start_x, y: start_y },
+      { x: (start_x - sweep).clamp(zone.left, zone.right), y: start_y + (dest_y - start_y) * 0.25 },
+      { x: (dest_x + sweep).clamp(zone.left, zone.right), y: dest_y + (start_y - dest_y) * 0.25 },
+      { x: dest_x, y: dest_y },
+    ]
+  end
+
+  def rush_target(args, target)
+    elapsed = Kernel.tick_count - target.spawned_at
+    t = (elapsed / target.entry_duration).clamp(0, 1)
+
+    path = target.entry_path
+    point = args.geometry.cubic_bezier_vec2(path[0], path[1], path[2], path[3], ease_out(t))
+    target.x = point.x
+    target.y = point.y
+
+    return if t < 1
+
+    target.mode = :wandering
+    target.next_turn_at = Kernel.tick_count + enemy_turn_delay
+    target.next_fire_at = Kernel.tick_count + enemy_fire_delay
+  end
+
+  def enemies_wanted(args)
+    elapsed = ROUND_DURATION - args.state.timer
+    extra = (elapsed / ENEMY_RAMP_INTERVAL).to_i
+    (ENEMY_COUNT_START + extra).clamp(ENEMY_COUNT_START, ENEMY_COUNT_MAX)
+  end
+
+  def maintain_enemy_population(args)
+    return if args.state.targets.length >= enemies_wanted(args)
+    return if Kernel.tick_count < args.state.next_spawn_at
+
+    args.state.targets << spawn_target(args)
+    args.state.next_spawn_at = Kernel.tick_count + ENEMY_SPAWN_STAGGER
+  end
+
+  def spawn_target(args)
+    zone = enemy_zone(args)
+    dx, dy = random_enemy_velocity
+    dest_x = rand(zone.right - zone.left) + zone.left
+    dest_y = rand(zone.top - zone.bottom) + zone.bottom
+    entry_path = build_entry_path(args, dest_x, dest_y)
+
+    {
+      x: entry_path[0].x,
+      y: entry_path[0].y,
+      entry_path: entry_path,
+      entry_duration: rand(ENEMY_ENTRY_DURATION_MAX - ENEMY_ENTRY_DURATION_MIN) + ENEMY_ENTRY_DURATION_MIN,
+      mode: :entering,
+      w: ENEMY_SIZE,
+      h: ENEMY_SIZE,
+      dx: dx,
+      dy: dy,
+      next_turn_at: Kernel.tick_count + enemy_turn_delay,
+      spawned_at: Kernel.tick_count,
+      next_fire_at: Kernel.tick_count + enemy_fire_delay,
+      path: dragon_sprite_path(Kernel.tick_count),
+      flip_horizontally: true
+    }
+  end
+
+  def enemy_fire_delay
+    rand(ENEMY_FIRE_DELAY_MAX - ENEMY_FIRE_DELAY_MIN) + ENEMY_FIRE_DELAY_MIN
+  end
+
+  def spawn_enemy_fireball(target)
+    {
+      x: target.x - 20,
+      y: target.y + (target.h / 2) - 16,
+      w: 32,
+      h: 32,
+      path: "sprites/fireball.png",
+      flip_horizontally: true,
+    }
+  end
+
+  def player_hitbox(player)
+    {
+      x: player.x + 16,
+      y: player.y + 12,
+      w: player.w - 32,
+      h: player.h - 24,
+    }
+  end
+
+  def end_game(args)
+    args.audio[:music].paused = true
+    args.outputs.sounds << "sounds/game-over.wav"
+    args.state.timer = 0
+    args.state.scene = "game_over"
   end
 
   def title_tick args
@@ -191,6 +349,7 @@ module Main
       b: 230,
     }
 
+
     args.state.player ||= {
       x: 120,
       y: 280,
@@ -199,26 +358,24 @@ module Main
       speed: 12,
     }
 
-    player_sprite_index = 0.frame_index(count: 6, hold_for: 8, repeat: true)
-    args.state.player.path = "sprites/misc/dragon-#{player_sprite_index}.png"
+    args.state.player.path = dragon_sprite_path(0)
 
     args.state.fireballs ||= []
-    args.state.targets ||= [
-      spawn_target(args), spawn_target(args), spawn_target(args)
-    ]
+    args.state.enemy_fireballs ||= []
+    args.state.targets ||= []
+    args.state.next_spawn_at ||= 0
     args.state.score ||= 0
-    args.state.timer ||= 30 * FPS
+    args.state.timer ||= ROUND_DURATION
 
     args.state.timer -= 1
 
-    if args.state.timer == 0
-      args.audio[:music].paused = true
-      args.outputs.sounds << "sounds/game-over.wav"
-      args.state.scene = "game_over"
+    if args.state.timer <= 0
+      end_game(args)
       return
     end
 
     handle_player_movement(args)
+    maintain_enemy_population(args)
 
     if fire_input?(args)
       args.outputs.sounds << "sounds/fireball.wav"
@@ -240,20 +397,64 @@ module Main
       end
 
       args.state.targets.each do |target|
+        next if target.dead
+
         if args.geometry.intersect_rect?(target, fireball)
           args.outputs.sounds << "sounds/target.wav"
           target.dead = true
           fireball.dead = true
           args.state.score += 1
-          args.state.targets << spawn_target(args)
+          break
         end
       end
     end
 
+    args.state.targets.each do |target|
+      next if target.dead
+      next if target.mode == :entering
+      next if Kernel.tick_count < target.next_fire_at
+      target.next_fire_at = Kernel.tick_count + enemy_fire_delay
+      args.state.enemy_fireballs << spawn_enemy_fireball(target)
+    end
+
+    hitbox = player_hitbox(args.state.player)
+
+    args.state.enemy_fireballs.each do |fireball|
+      fireball.x -= ENEMY_FIREBALL_SPEED
+
+      if fireball.x + fireball.w < 0
+        fireball.dead = true
+        next
+      end
+
+      if args.geometry.intersect_rect?(hitbox, fireball)
+        end_game(args)
+        return
+      end
+    end
+
+    args.state.targets.each do |target|
+      next if target.dead
+
+      if target.mode == :entering
+        rush_target(args, target)
+      else
+        wander_target(args, target)
+      end
+
+      target.path = dragon_sprite_path(target.spawned_at)
+    end
+
     args.state.targets.reject! { |t| t.dead }
     args.state.fireballs.reject! { |f| f.dead }
+    args.state.enemy_fireballs.reject! { |f| f.dead }
 
-    args.outputs.sprites << [args.state.player, args.state.fireballs, args.state.targets]
+    args.outputs.sprites << [
+      args.state.player,
+      args.state.fireballs,
+      args.state.enemy_fireballs,
+      args.state.targets,
+    ]
 
     labels = []
     labels << {
