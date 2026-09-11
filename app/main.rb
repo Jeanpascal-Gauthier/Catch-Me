@@ -1,4 +1,5 @@
 module Main
+  FPS = 60
   HIGH_SCORES_FILE = "high-scores.txt"
   MAX_HIGH_SCORES = 5
 
@@ -49,8 +50,42 @@ module Main
     }
   end
 
+  def fire_input?(args)
+    args.inputs.keyboard.key_down.z ||
+      args.inputs.keyboard.key_down.j ||
+      args.inputs.controller_one.key_down.a
+  end
+
+  def handle_player_movement(args)
+    dx = 0
+    dy = 0
+
+    if args.inputs.left
+      dx -= 1
+    elsif args.inputs.right
+      dx += 1
+    end
+
+    if args.inputs.up
+      dy += 1
+    elsif args.inputs.down
+      dy -= 1
+    end
+
+    if dx != 0 || dy != 0
+      magnitude = Math.sqrt(dx * dx + dy * dy)
+      args.state.player.x += (dx / magnitude) * args.state.player.speed
+      args.state.player.y += (dy / magnitude) * args.state.player.speed
+    end
+
+    args.state.player.x = args.state.player.x.clamp(0, args.grid.w - args.state.player.w)
+    args.state.player.y = args.state.player.y.clamp(0, args.grid.h - args.state.player.h)
+  end
+
   def game_over_tick(args)
     args.state.high_scores ||= load_high_scores
+    args.state.timer -= 1
+
     try_save_high_score(args)
 
     labels = []
@@ -101,30 +136,18 @@ module Main
 
     args.outputs.labels << labels
 
-    if args.state.timer < -30 &&
-        (args.inputs.keyboard.key_down.z ||
-        args.inputs.keyboard.key_down.j ||
-        args.inputs.controller_one.key_down.a)
+    if args.state.timer < -30 && fire_input?(args)
       DR.reset
     end
   end
 
-  def fire_input?(args)
-    args.inputs.keyboard.key_down.z ||
-      args.inputs.keyboard.key_down.j ||
-      args.inputs.controller_one.key_down.a
-  end
-
-  def tick args
-    if Kernel.tick_count == 1
-      args.audio[:music] = { input: "sounds/flight.ogg", looping: true }
-    end
-
-    args.outputs.solids << {
+  def gameplay_tick(args)
+    args.outputs.sprites << {
       x: 0,
       y: 0,
       w: args.grid.w,
       h: args.grid.h,
+      path: :solid,
       r: 92,
       g: 120,
       b: 230,
@@ -136,7 +159,6 @@ module Main
       w: 100,
       h: 80,
       speed: 12,
-      path: 'sprites/misc/dragon-0.png',
     }
 
     player_sprite_index = 0.frame_index(count: 6, hold_for: 8, repeat: true)
@@ -147,46 +169,19 @@ module Main
       spawn_target(args), spawn_target(args), spawn_target(args)
     ]
     args.state.score ||= 0
+    args.state.timer ||= 30 * FPS
 
-    args.state.timer ||= 30 * 60
     args.state.timer -= 1
 
     if args.state.timer == 0
       args.audio[:music].paused = true
       args.outputs.sounds << "sounds/game-over.wav"
-    end
-
-    if args.state.timer < 0
-      game_over_tick(args)
+      args.state.scene = "game_over"
       return
     end
 
-    # Movement logic
-    dx = 0
-    dy = 0
+    handle_player_movement(args)
 
-    if args.inputs.left
-      dx -= 1
-    elsif args.inputs.right
-      dx += 1
-    end
-
-    if args.inputs.up
-      dy += 1
-    elsif args.inputs.down
-      dy -= 1
-    end
-
-    if dx != 0 || dy != 0
-      magnitude = Math.sqrt(dx * dx + dy * dy)
-      args.state.player.x += (dx / magnitude) * args.state.player.speed
-      args.state.player.y += (dy / magnitude) * args.state.player.speed
-    end
-
-    args.state.player.x = args.state.player.x.clamp(0, args.grid.w - args.state.player.w)
-    args.state.player.y = args.state.player.y.clamp(0, args.grid.h - args.state.player.h)
-
-    # Fireball logic
     if fire_input?(args)
       args.outputs.sounds << "sounds/fireball.wav"
       args.state.fireballs << {
@@ -232,11 +227,21 @@ module Main
     labels << {
       x: args.grid.w - 40,
       y: args.grid.h - 40,
-      text: "Time Left: #{(args.state.timer / 60).round}",
+      text: "Time Left: #{(args.state.timer / FPS).round}",
       size_px: 26,
       anchor_x: 1,
     }
     args.outputs.labels << labels
+  end
+
+  def tick args
+    if Kernel.tick_count == 1
+      args.audio[:music] = { input: "sounds/flight.ogg", looping: true }
+    end
+
+    args.state.scene ||= "gameplay"
+
+    send("#{args.state.scene}_tick", args)
   end
 end
 
