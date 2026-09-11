@@ -2,6 +2,12 @@ module Main
   FPS = 60
   HIGH_SCORES_FILE = "high-scores.txt"
   MAX_HIGH_SCORES = 5
+  PLAYER_DRAGON = "dragon"
+  ENEMY_DRAGON = "dragon-green"
+
+  BACKGROUND_PATH = "sprites/background-sky.png"
+  BACKGROUND_SPEED = 1.2
+
   ENEMY_FIREBALL_SPEED = 8
   ENEMY_FIRE_DELAY_MIN = 1.2 * FPS
   ENEMY_FIRE_DELAY_MAX = 3.0 * FPS
@@ -14,7 +20,10 @@ module Main
   ENEMY_ENTRY_DURATION_MIN = 0.8 * FPS
   ENEMY_ENTRY_DURATION_MAX = 1.4 * FPS
   ENEMY_ENTRY_SWEEP = 220
+
   ROUND_DURATION = 120 * FPS
+
+  # For increasing difficulty as time progresses by spawning more enemies
   ENEMY_COUNT_START = 3
   ENEMY_COUNT_MAX = 12
   ENEMY_RAMP_INTERVAL = 12 * FPS
@@ -89,9 +98,9 @@ module Main
     args.state.player.y = args.state.player.y.clamp(0, args.grid.h - args.state.player.h)
   end
 
-  def dragon_sprite_path(start_tick)
+  def dragon_sprite_path(start_tick, name)
     index = start_tick.frame_index(count: 6, hold_for: 8, repeat: true)
-    "sprites/misc/dragon-#{index}.png"
+    "sprites/misc/#{name}-#{index}.png"
   end
 
   # This is so enemies dont go too far left
@@ -105,6 +114,7 @@ module Main
     }
   end
 
+  # Controls the switching of direction for targets
   def enemy_turn_delay
     rand(ENEMY_TURN_DELAY_MAX - ENEMY_TURN_DELAY_MIN) + ENEMY_TURN_DELAY_MIN
   end
@@ -204,7 +214,7 @@ module Main
       next_turn_at: Kernel.tick_count + enemy_turn_delay,
       spawned_at: Kernel.tick_count,
       next_fire_at: Kernel.tick_count + enemy_fire_delay,
-      path: dragon_sprite_path(Kernel.tick_count),
+      path: dragon_sprite_path(Kernel.tick_count, ENEMY_DRAGON),
       flip_horizontally: true
     }
   end
@@ -238,6 +248,24 @@ module Main
     args.outputs.sounds << "sounds/game-over.wav"
     args.state.timer = 0
     args.state.scene = "game_over"
+  end
+
+  def render_background(args)
+    tile_w = args.grid.w
+    scrolled = Kernel.tick_count * BACKGROUND_SPEED
+    first_tile = (scrolled / tile_w).floor
+    offset = scrolled % tile_w
+
+    2.times do |i|
+      args.outputs.sprites << {
+        x: (i * tile_w) - offset,
+        y: 0,
+        w: tile_w,
+        h: args.grid.h,
+        path: BACKGROUND_PATH,
+        flip_horizontally: (first_tile + i).odd?,
+      }
+    end
   end
 
   def title_tick args
@@ -338,17 +366,7 @@ module Main
   end
 
   def gameplay_tick(args)
-    args.outputs.sprites << {
-      x: 0,
-      y: 0,
-      w: args.grid.w,
-      h: args.grid.h,
-      path: :solid,
-      r: 92,
-      g: 120,
-      b: 230,
-    }
-
+    render_background(args)
 
     args.state.player ||= {
       x: 120,
@@ -358,7 +376,7 @@ module Main
       speed: 12,
     }
 
-    args.state.player.path = dragon_sprite_path(0)
+    args.state.player.path = dragon_sprite_path(0, PLAYER_DRAGON)
 
     args.state.fireballs ||= []
     args.state.enemy_fireballs ||= []
@@ -442,7 +460,7 @@ module Main
         wander_target(args, target)
       end
 
-      target.path = dragon_sprite_path(target.spawned_at)
+      target.path = dragon_sprite_path(target.spawned_at, ENEMY_DRAGON)
     end
 
     args.state.targets.reject! { |t| t.dead }
