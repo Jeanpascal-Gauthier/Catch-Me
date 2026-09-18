@@ -47,10 +47,12 @@ DISCARDED = 2
 $seed      ||= 1
 $threshold ||= 0.02
 
+# DragonRuby calls this once on launch.
 def boot args
   args.state = {}
 end
 
+# DragonRuby calls this every frame.
 def tick args
   init args
   handle_input args
@@ -58,6 +60,7 @@ def tick args
   render args
 end
 
+# One-time setup of args.state, run on the first tick (and after a reset).
 def init args
   return if args.state.ready
 
@@ -77,6 +80,8 @@ end
 
 # ---------------------------------------------------------------- input
 
+# Reads keyboard state and applies it to args.state, marking field/map dirty
+# as needed so regenerate picks up the change.
 def handle_input args
   k = args.inputs.keyboard
   t = args.state.tick_count
@@ -120,12 +125,16 @@ def repeating? down, held, tick
   down || (held && tick % 4 == 0)
 end
 
+# Updates the seed in state and the hot-reload-surviving global, then
+# flags the noise field for regeneration.
 def set_seed args, value
   args.state.seed = value
   $seed = value
   args.state.field_dirty = true
 end
 
+# Updates the threshold in state and the hot-reload-surviving global, then
+# flags the map for regeneration (the field itself does not need redoing).
 def set_threshold args, value
   value = value.clamp(-2.0, 2.0)
   args.state.threshold = value
@@ -154,6 +163,7 @@ class Lcg
   end
 end
 
+# Rejection-samples a random unit vector from the LCG.
 def random_direction rng
   20.times do
     x = rng.signed_float
@@ -167,10 +177,12 @@ def random_direction rng
   [1.0, 0.0, 0.0]
 end
 
+# 3D dot product.
 def dot a, b
   a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 end
 
+# 3D cross product.
 def cross a, b
   [a[1] * b[2] - a[2] * b[1],
    a[2] * b[0] - a[0] * b[2],
@@ -212,6 +224,8 @@ end
 
 # ----------------------------------------------------------- generation
 
+# Rebuilds the noise field and/or the map only when their dirty flags are
+# set, then re-renders the cached map sprite if the map changed.
 def regenerate args
   if args.state.field_dirty
     build_field args
@@ -235,6 +249,7 @@ def unit n
   n
 end
 
+# Clamped fBm noise sample at (x, y, z) with the given octave count.
 def fbm x, y, z, octaves
   Geometry.perlin_fbm_noise unit(x), unit(y), unit(z), LACUNARITY, GAIN, octaves
 end
@@ -365,6 +380,8 @@ def find_regions cells
   regions
 end
 
+# Pushes neighbor cell i onto the flood-fill stack if it's in bounds,
+# unvisited, and not a wall.
 def push_open stack, seen, cells, i, in_bounds
   return unless in_bounds
   return if seen[i]
@@ -411,6 +428,7 @@ def render_map args
   end
 end
 
+# Blits the cached map sprite and draws the HUD on top.
 def render args
   args.outputs.background_color = [10, 11, 16]
 
@@ -423,6 +441,7 @@ def render args
   render_hud args
 end
 
+# Draws the sidebar of stats and control hints as a stack of labels.
 def render_hud args
   total = GRID_W * GRID_H
 
@@ -457,14 +476,17 @@ def render_hud args
   end
 end
 
+# n as a percentage of total, rounded to one decimal place.
 def pct n, total
   (n.fdiv(total) * 100).round(1)
 end
 
+# "on" / "off" label for a boolean flag.
 def on_off flag
   flag ? "on" : "off"
 end
 
+# Clears state so the next tick's init rebuilds everything from scratch.
 def reset args
   args.state = {}
 end
