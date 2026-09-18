@@ -1,9 +1,5 @@
-* EXCEPTION:
-* ERROR:
-Undefined method player_sprite_index for main.
-
-
+* EXCEPTION: 'open': wrong number of arguments (0 for 1)
 ** Backtrace:
-*** app/main.rb:203:in spawn_target
-*** app/main.rb:220:in gameplay_tick
-*** app/main.rb:295:in tick
+*** app/main.rb:435:in render_hud
+*** app/main.rb:423:in render
+*** app/main.rb:58:in tick
