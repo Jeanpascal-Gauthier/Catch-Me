@@ -1,468 +1,565 @@
-#   R        reroll seed
-#   LEFT     seed - 1          RIGHT  seed + 1
-#   DOWN     threshold - 0.01  UP     threshold + 0.01
-#   W        toggle domain warp
-#   I        toggle island mask
-#   F        toggle flood fill (keep largest region only)
-#   TAB      toggle highlight of discarded regions
-#
-# IMPORTANT: Geometry.perlin_* requires x, y, z in [-1, 1]. Pass anything
-# outside that and the engine raises. Since perlin_fbm_noise has no seed
-# parameter, this file seeds by slicing the 3D noise field along a randomly
-# oriented plane: each seed picks an orthonormal basis (u, v) and an origin,
-# and the map's x/y walk that plane. Rotating the slice decorrelates the
-# result, so you get unlimited distinct maps without leaving the unit cube.
-#
-# Seed and threshold live in globals, so they survive hot reload. Edit a
-# constant below, hit save, and you are looking at the same map with the new
-# parameters. That is the whole point of this file.
+module Main
+  FPS = 60
+  HIGH_SCORES_FILE = "high-scores.txt"
+  MAX_HIGH_SCORES = 5
+  PLAYER_DRAGON = "dragon"
+  ENEMY_DRAGON = "dragon-green"
+  INTRO_DURATION = 1.2 * FPS
+  LABEL_SLIDE = 400
+  REVEAL_DURATION = 0.5 * FPS
+  REVEAL_STAGGER = 5
+  SCRIM_ALPHA = 150
+  ARCADE_YELLOW = { r: 255, g: 209, b: 71 }
+  ARCADE_WHITE = { r: 245, g: 245, b: 255 }
+  ARCADE_CYAN = { r: 120, g: 231, b: 255 }
+  ARCADE_SHADOW = { r: 12, g: 8, b: 30 }
+  PLAYER_HOME_X = 120
+  PLAYER_HOME_Y = 280
 
-GRID_W  = 84
-GRID_H  = 84
-CELL_PX = 8
-MAP_X   = 24
-MAP_Y   = 24
-HUD_X   = 724
+  BACKGROUND_PATH = "sprites/background-sky.png"
+  BACKGROUND_SPEED = 1.2
 
-# --- tune these, save, compare -----------------------------------------
-SPAN       = 0.9   # width of the sampled window in noise units. keep < 2.0
-LACUNARITY = 4.0   # frequency multiplier per octave
-GAIN       = 0.45  # amplitude multiplier per octave
-OCTAVES    = 4     # how many layers of detail
-WARP       = 0.12  # domain warp strength
-WARP_OCT   = 2     # octaves used for the warp fields
-WARP_SHIFT = 0.15  # how far along the plane normal the warp fields are read
-MASK_GAIN  = 1.5   # island falloff strength
-MASK_POWER = 2.2   # island falloff curve
-# -----------------------------------------------------------------------
+  ENEMY_FIREBALL_SPEED = 8
+  ENEMY_FIRE_DELAY_MIN = 1.2 * FPS
+  ENEMY_FIRE_DELAY_MAX = 3.0 * FPS
+  ENEMY_SIZE = 64
+  ENEMY_ZONE_LEFT_RATIO = 0.55
+  ENEMY_SPEED_MIN = 0.6
+  ENEMY_SPEED_MAX = 2.4
+  ENEMY_TURN_DELAY_MIN = 0.5 * FPS
+  ENEMY_TURN_DELAY_MAX = 1.8 * FPS
+  ENEMY_ENTRY_DURATION_MIN = 0.8 * FPS
+  ENEMY_ENTRY_DURATION_MAX = 1.4 * FPS
+  ENEMY_ENTRY_SWEEP = 220
 
-WALL      = 0
-FLOOR     = 1
-DISCARDED = 2
+  ROUND_DURATION = 120 * FPS
 
-$seed      ||= 1
-$threshold ||= 0.02
+  # For increasing difficulty as time progresses by spawning more enemies
+  ENEMY_COUNT_START = 3
+  ENEMY_COUNT_MAX = 12
+  ENEMY_RAMP_INTERVAL = 12 * FPS
+  ENEMY_SPAWN_STAGGER = 0.4 * FPS
 
-def boot args
-  args.state = {}
-end
+  def load_high_scores
+    contents = DR.read_file(HIGH_SCORES_FILE)
+    return [] if contents.nil? || contents.strip.empty?
 
-def tick args
-  init args
-  handle_input args
-  regenerate args
-  render args
-end
-
-def init args
-  return if args.state.ready
-
-  args.state.ready       = true
-  args.state.seed        = $seed
-  args.state.threshold   = $threshold
-  args.state.warp        = true
-  args.state.mask        = false
-  args.state.cull        = true
-  args.state.show_culled = true
-  args.state.field_dirty = true
-  args.state.map_dirty   = true
-  args.state.regions     = 0
-  args.state.largest     = 0
-  args.state.open_cells  = 0
-end
-
-# ---------------------------------------------------------------- input
-
-def handle_input args
-  k = args.inputs.keyboard
-  t = args.state.tick_count
-
-  set_seed args, Numeric.rand(100_000) if k.key_down.r
-
-  set_seed args, args.state.seed + 1 if repeating?(k.key_down.right, k.key_held.right, t)
-  set_seed args, args.state.seed - 1 if repeating?(k.key_down.left, k.key_held.left, t)
-
-  if repeating?(k.key_down.up, k.key_held.up, t)
-    set_threshold args, args.state.threshold + 0.01
+    contents.strip.split("\n").map do |line|
+      score_str, date_str = line.split(",", 2)
+      { score: score_str.to_i, date: date_str }
+    end
   end
 
-  if repeating?(k.key_down.down, k.key_held.down, t)
-    set_threshold args, args.state.threshold - 0.01
+  def format_timestamp(time)
+    format("%04d-%02d-%02d %02d:%02d", time.year, time.month, time.day, time.hour, time.min)
   end
 
-  if k.key_down.w
-    args.state.warp = !args.state.warp
-    args.state.field_dirty = true
+  def save_high_scores(scores)
+    contents = scores.map { |entry| "#{entry.score},#{entry.date}" }.join("\n")
+    DR.write_file(HIGH_SCORES_FILE, contents)
   end
 
-  if k.key_down.i
-    args.state.mask = !args.state.mask
-    args.state.field_dirty = true
+  def try_save_high_score(args)
+    return if args.state.saved_high_score
+    args.state.saved_high_score = true
+
+    previous_best = args.state.high_scores.map { |entry| entry.score }.max || 0
+    args.state.new_high_score = args.state.score > 0 && args.state.score > previous_best
+
+    args.state.high_scores << {
+      score: args.state.score,
+      date: format_timestamp(Time.now),
+    }
+    args.state.high_scores = args.state.high_scores.sort_by { |entry| -entry.score }
+    args.state.high_scores = args.state.high_scores.first(MAX_HIGH_SCORES)
+
+    save_high_scores(args.state.high_scores)
   end
 
-  if k.key_down.f
-    args.state.cull = !args.state.cull
-    args.state.map_dirty = true
+  def fire_input?(args)
+    args.inputs.keyboard.key_down.z ||
+      args.inputs.keyboard.key_down.j ||
+      args.inputs.controller_one.key_down.a
   end
 
-  if k.key_down.tab
-    args.state.show_culled = !args.state.show_culled
-    args.state.map_dirty = true
-  end
-end
+  # Creating a vector to make player speed consistent 
+  def handle_player_movement(args)
+    dx = 0
+    dy = 0
 
-# tap for one step, hold to repeat
-def repeating? down, held, tick
-  down || (held && tick % 4 == 0)
-end
+    if args.inputs.left
+      dx -= 1
+    elsif args.inputs.right
+      dx += 1
+    end
 
-def set_seed args, value
-  args.state.seed = value
-  $seed = value
-  args.state.field_dirty = true
-end
+    if args.inputs.up
+      dy += 1
+    elsif args.inputs.down
+      dy -= 1
+    end
 
-def set_threshold args, value
-  value = value.clamp(-2.0, 2.0)
-  args.state.threshold = value
-  $threshold = value
-  args.state.map_dirty = true
-end
+    if dx != 0 || dy != 0
+      magnitude = Math.sqrt(dx * dx + dy * dy)
+      args.state.player.x += (dx / magnitude) * args.state.player.speed
+      args.state.player.y += (dy / magnitude) * args.state.player.speed
+    end
 
-# ------------------------------------------------------------ seed -> plane
-
-# Small self-contained LCG. Deliberately not DR's RNG, so a given seed always
-# produces the same plane no matter what else has touched the global RNG.
-class Lcg
-  def initialize seed
-    @s = ((seed.abs + 1) * 747_796_405 + 2_891_336_453) & 0xFFFFFFFF
-    @s = 1 if @s == 0
-    4.times { unit_float }
+    args.state.player.x = args.state.player.x.clamp(0, args.grid.w - args.state.player.w)
+    args.state.player.y = args.state.player.y.clamp(0, args.grid.h - args.state.player.h)
   end
 
-  def unit_float
-    @s = (@s * 1_664_525 + 1_013_904_223) & 0xFFFFFFFF
-    @s.fdiv(0xFFFFFFFF)
+  def dragon_sprite_path(start_tick, name)
+    index = start_tick.frame_index(count: 6, hold_for: 8, repeat: true)
+    "sprites/misc/#{name}-#{index}.png"
   end
 
-  def signed_float
-    unit_float * 2.0 - 1.0
-  end
-end
-
-def random_direction rng
-  20.times do
-    x = rng.signed_float
-    y = rng.signed_float
-    z = rng.signed_float
-    len = Math.sqrt(x * x + y * y + z * z)
-    next if len < 0.25
-    return [x / len, y / len, z / len]
+  # This is so enemies dont go too far left
+  def enemy_zone(args)
+    left = args.grid.w * ENEMY_ZONE_LEFT_RATIO
+    {
+      left: left,
+      right: args.grid.w - ENEMY_SIZE,
+      bottom: 0,
+      top: args.grid.h - ENEMY_SIZE,
+    }
   end
 
-  [1.0, 0.0, 0.0]
-end
-
-def dot a, b
-  a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-end
-
-def cross a, b
-  [a[1] * b[2] - a[2] * b[1],
-   a[2] * b[0] - a[0] * b[2],
-   a[0] * b[1] - a[1] * b[0]]
-end
-
-# Orthonormal basis (u, v), their normal, and an origin, all derived from seed.
-def build_plane seed
-  rng = Lcg.new seed
-  u   = random_direction rng
-  v   = nil
-
-  20.times do
-    w  = random_direction rng
-    d  = dot u, w
-    vx = w[0] - d * u[0]
-    vy = w[1] - d * u[1]
-    vz = w[2] - d * u[2]
-    len = Math.sqrt(vx * vx + vy * vy + vz * vz)
-    next if len < 0.25
-
-    v = [vx / len, vy / len, vz / len]
-    break
+  # Controls the switching of direction for targets
+  def enemy_turn_delay
+    rand(ENEMY_TURN_DELAY_MAX - ENEMY_TURN_DELAY_MIN) + ENEMY_TURN_DELAY_MIN
   end
 
-  v ||= cross(u, [0.0, 0.0, 1.0])
-
-  # How far the origin can wander and still keep every sample in the unit cube.
-  reach = (SPAN * 0.5 * 1.415) + WARP + WARP_SHIFT
-  room  = 1.0 - reach
-  room  = 0.0 if room < 0.0
-
-  origin = [rng.signed_float * room,
-            rng.signed_float * room,
-            rng.signed_float * room]
-
-  { u: u, v: v, n: cross(u, v), origin: origin }
-end
-
-# ----------------------------------------------------------- generation
-
-def regenerate args
-  if args.state.field_dirty
-    build_field args
-    args.state.field_dirty = false
-    args.state.map_dirty   = true
+  def random_enemy_velocity
+    speed = rand(ENEMY_SPEED_MAX - ENEMY_SPEED_MIN) + ENEMY_SPEED_MIN
+    angle = rand(360)
+    [speed * Math.cos(angle * Math::PI / 180), speed * Math.sin(angle * Math::PI / 180)]
   end
 
-  return unless args.state.map_dirty
+  def wander_target(args, target)
+    if Kernel.tick_count >= target.next_turn_at
+      target.dx, target.dy = random_enemy_velocity
+      target.next_turn_at = Kernel.tick_count + enemy_turn_delay
+    end
 
-  build_map args
-  render_map args
-  args.state.map_dirty = false
-end
+    zone = enemy_zone(args)
+    target.x += target.dx
+    target.y += target.dy
 
-# The engine rejects anything outside [-1, 1]. Clamping here means a bad
-# constant gives you an ugly map instead of a crash mid-iteration.
-def unit n
-  return -1.0 if n < -1.0
-  return 1.0 if n > 1.0
+    if target.x < zone.left || target.x > zone.right
+      target.dx = -target.dx
+      target.x = target.x.clamp(zone.left, zone.right)
+    end
 
-  n
-end
+    if target.y < zone.bottom || target.y > zone.top
+      target.dy = -target.dy
+      target.y = target.y.clamp(zone.bottom, zone.top)
+    end
+  end
 
-def fbm x, y, z, octaves
-  Geometry.perlin_fbm_noise unit(x), unit(y), unit(z), LACUNARITY, GAIN, octaves
-end
+  def ease_out(t)
+    1 - ((1 - t) * (1 - t))
+  end
 
-# Samples the noise once per cell and caches the raw floats.
-def build_field args
-  plane  = build_plane args.state.seed
-  u      = plane[:u]
-  v      = plane[:v]
-  n      = plane[:n]
-  ox, oy, oz = plane[:origin]
-  warp   = args.state.warp
-  mask   = args.state.mask
+  def build_entry_path(args, dest_x, dest_y)
+    zone = enemy_zone(args)
+    start_y = rand(2) == 0 ? args.grid.h + ENEMY_SIZE : -ENEMY_SIZE
+    sweep = rand(2) == 0 ? -ENEMY_ENTRY_SWEEP : ENEMY_ENTRY_SWEEP
+    start_x = (dest_x + sweep).clamp(zone.left, zone.right)
 
-  field = Array.new(GRID_W * GRID_H, 0.0)
+    [
+      { x: start_x, y: start_y },
+      { x: (start_x - sweep).clamp(zone.left, zone.right), y: start_y + (dest_y - start_y) * 0.25 },
+      { x: (dest_x + sweep).clamp(zone.left, zone.right), y: dest_y + (start_y - dest_y) * 0.25 },
+      { x: dest_x, y: dest_y },
+    ]
+  end
 
-  GRID_H.times do |y|
-    b   = (y.fdiv(GRID_H - 1) - 0.5) * SPAN
-    row = y * GRID_W
+  def rush_target(args, target)
+    elapsed = Kernel.tick_count - target.spawned_at
+    t = (elapsed / target.entry_duration).clamp(0, 1)
 
-    GRID_W.times do |x|
-      a = (x.fdiv(GRID_W - 1) - 0.5) * SPAN
+    path = target.entry_path
+    point = args.geometry.cubic_bezier_vec2(path[0], path[1], path[2], path[3], ease_out(t))
+    target.x = point.x
+    target.y = point.y
 
-      sx = ox + u[0] * a + v[0] * b
-      sy = oy + u[1] * a + v[1] * b
-      sz = oz + u[2] * a + v[2] * b
+    return if t < 1
 
-      if warp
-        # Two warp fields read from parallel slices either side of the plane.
-        wa = fbm sx + n[0] * WARP_SHIFT, sy + n[1] * WARP_SHIFT, sz + n[2] * WARP_SHIFT, WARP_OCT
-        wb = fbm sx - n[0] * WARP_SHIFT, sy - n[1] * WARP_SHIFT, sz - n[2] * WARP_SHIFT, WARP_OCT
+    target.mode = :wandering
+    target.next_turn_at = Kernel.tick_count + enemy_turn_delay
+    target.next_fire_at = Kernel.tick_count + enemy_fire_delay
+  end
 
-        sx += WARP * (u[0] * wa + v[0] * wb)
-        sy += WARP * (u[1] * wa + v[1] * wb)
-        sz += WARP * (u[2] * wa + v[2] * wb)
+  def enemies_wanted(args)
+    elapsed = ROUND_DURATION - args.state.timer
+    extra = (elapsed / ENEMY_RAMP_INTERVAL).to_i
+    (ENEMY_COUNT_START + extra).clamp(ENEMY_COUNT_START, ENEMY_COUNT_MAX)
+  end
+
+  def maintain_enemy_population(args)
+    return if args.state.targets.length >= enemies_wanted(args)
+    return if Kernel.tick_count < args.state.next_spawn_at
+
+    args.state.targets << spawn_target(args)
+    args.state.next_spawn_at = Kernel.tick_count + ENEMY_SPAWN_STAGGER
+  end
+
+  def spawn_target(args)
+    zone = enemy_zone(args)
+    dx, dy = random_enemy_velocity
+    dest_x = rand(zone.right - zone.left) + zone.left
+    dest_y = rand(zone.top - zone.bottom) + zone.bottom
+    entry_path = build_entry_path(args, dest_x, dest_y)
+
+    {
+      x: entry_path[0].x,
+      y: entry_path[0].y,
+      entry_path: entry_path,
+      entry_duration: rand(ENEMY_ENTRY_DURATION_MAX - ENEMY_ENTRY_DURATION_MIN) + ENEMY_ENTRY_DURATION_MIN,
+      mode: :entering,
+      w: ENEMY_SIZE,
+      h: ENEMY_SIZE,
+      dx: dx,
+      dy: dy,
+      next_turn_at: Kernel.tick_count + enemy_turn_delay,
+      spawned_at: Kernel.tick_count,
+      next_fire_at: Kernel.tick_count + enemy_fire_delay,
+      path: dragon_sprite_path(Kernel.tick_count, ENEMY_DRAGON),
+      flip_horizontally: true
+    }
+  end
+
+  def enemy_fire_delay
+    rand(ENEMY_FIRE_DELAY_MAX - ENEMY_FIRE_DELAY_MIN) + ENEMY_FIRE_DELAY_MIN
+  end
+
+  def spawn_enemy_fireball(target)
+    {
+      x: target.x - 20,
+      y: target.y + (target.h / 2) - 16,
+      w: 32,
+      h: 32,
+      path: "sprites/fireball.png",
+      flip_horizontally: true,
+    }
+  end
+
+  def player_hitbox(player)
+    {
+      x: player.x + 16,
+      y: player.y + 12,
+      w: player.w - 32,
+      h: player.h - 24,
+    }
+  end
+
+  def end_game(args)
+    args.audio[:music].paused = true
+    args.outputs.sounds << "sounds/game-over.wav"
+    args.state.timer = 0
+    args.state.scene = "game_over"
+  end
+
+  def render_background(args)
+    tile_w = args.grid.w
+    scrolled = Kernel.tick_count * BACKGROUND_SPEED
+    first_tile = (scrolled / tile_w).floor
+    offset = scrolled % tile_w
+
+    2.times do |i|
+      args.outputs.sprites << {
+        x: (i * tile_w) - offset,
+        y: 0,
+        w: tile_w,
+        h: args.grid.h,
+        path: BACKGROUND_PATH,
+        flip_horizontally: (first_tile + i).odd?,
+      }
+    end
+  end
+
+  def blinking?
+    Kernel.tick_count % 60 < 40
+  end
+
+  def shadowed(labels)
+    result = []
+    labels.each do |label|
+      result << label.merge(ARCADE_SHADOW).merge(x: label.x + 3, y: label.y - 3)
+      result << label
+    end
+    result
+  end
+
+  def render_scrim(args, alpha)
+    return if alpha <= 0
+
+    args.outputs.sprites << {
+      x: 0,
+      y: 0,
+      w: args.grid.w,
+      h: args.grid.h,
+      path: :solid,
+      r: 8,
+      g: 6,
+      b: 24,
+      a: alpha,
+    }
+  end
+
+  def title_labels(args, drift = 0)
+    cx = (args.grid.w / 2) - drift * (args.grid.w + LABEL_SLIDE)
+    top = args.grid.h
+
+    labels = []
+    labels << { x: cx, y: top - 120, text: "TARGET PRACTICE", size_px: 64, anchor_x: 0.5 }.merge(ARCADE_YELLOW)
+    labels << { x: cx, y: top - 200, text: "HIT THE TARGETS!", size_px: 28, anchor_x: 0.5 }.merge(ARCADE_WHITE)
+    labels << { x: cx, y: 220, text: "ARROWS / WASD TO MOVE     Z / J TO FIRE     GAMEPAD OK", size_px: 20, anchor_x: 0.5 }.merge(ARCADE_CYAN)
+    labels << { x: cx, y: 150, text: "FIRE TO START", size_px: 32, anchor_x: 0.5 }.merge(ARCADE_YELLOW) if blinking?
+    labels << { x: cx, y: 70, text: "BY JEAN-PASCAL GAUTHIER", size_px: 18, anchor_x: 0.5 }.merge(ARCADE_WHITE)
+
+    shadowed(labels)
+  end
+
+  def hud_labels(args, reveal = 1)
+    hidden = (1 - reveal) * LABEL_SLIDE
+
+    shadowed([
+      {
+        x: 40 - hidden,
+        y: args.grid.h - 40,
+        text: "SCORE  #{args.state.score}",
+        size_px: 30,
+      }.merge(ARCADE_WHITE),
+      {
+        x: args.grid.w - 40 + hidden,
+        y: args.grid.h - 40,
+        text: "TIME  #{(args.state.timer / FPS).round}",
+        size_px: 30,
+        anchor_x: 1,
+      }.merge(ARCADE_YELLOW),
+    ])
+  end
+
+  def intro_playing?(args)
+    Kernel.tick_count - args.state.intro_started_at < INTRO_DURATION
+  end
+
+  def play_intro(args)
+    elapsed = Kernel.tick_count - args.state.intro_started_at
+    progress = ease_out((elapsed / INTRO_DURATION).clamp(0, 1))
+
+    render_scrim(args, SCRIM_ALPHA * (1 - progress))
+    args.state.player.x = (progress * (PLAYER_HOME_X + args.state.player.w)) - args.state.player.w
+    args.outputs.sprites << args.state.player
+    args.outputs.labels << title_labels(args, progress)
+    args.outputs.labels << hud_labels(args, progress)
+  end
+
+  def reveal_progress(started_at, index)
+    elapsed = Kernel.tick_count - started_at - (index * REVEAL_STAGGER)
+    ease_out((elapsed / REVEAL_DURATION).clamp(0, 1))
+  end
+
+  def title_tick args
+    render_background(args)
+    render_scrim(args, SCRIM_ALPHA)
+
+    if fire_input?(args)
+      args.outputs.sounds << "sounds/game-over.wav"
+      args.state.scene = "gameplay"
+      return
+    end
+
+    args.outputs.labels << title_labels(args)
+  end
+
+  def game_over_labels(args)
+    cx = args.grid.w / 2
+    top = args.grid.h
+
+    lines = []
+    lines << { y: top - 110, text: "GAME OVER", size_px: 64 }.merge(ARCADE_YELLOW)
+    lines << { y: top - 175, text: "SCORE  #{args.state.score}", size_px: 36 }.merge(ARCADE_WHITE)
+    lines << { y: top - 225, text: "NEW HIGH SCORE!", size_px: 28 }.merge(ARCADE_CYAN) if args.state.new_high_score
+    lines << { y: top - 290, text: "HIGH SCORES", size_px: 26 }.merge(ARCADE_CYAN)
+
+    args.state.high_scores.each_with_index do |entry, i|
+      lines << {
+        y: top - 330 - (i * 30),
+        text: "#{i + 1}.   #{entry.score}    #{entry.date}",
+        size_px: 22,
+      }.merge(ARCADE_WHITE)
+    end
+
+    started_at = args.state.game_over_started_at
+    labels = []
+
+    lines.each_with_index do |line, i|
+      hidden = (1 - reveal_progress(started_at, i)) * LABEL_SLIDE
+      direction = i.even? ? -1 : 1
+      labels << line.merge(x: cx + (hidden * direction), anchor_x: 0.5)
+    end
+
+    if blinking?
+      labels << {
+        x: cx,
+        y: 80,
+        text: "FIRE TO RESTART",
+        size_px: 30,
+        anchor_x: 0.5,
+        a: reveal_progress(started_at, lines.length) * 255,
+      }.merge(ARCADE_YELLOW)
+    end
+
+    shadowed(labels)
+  end
+
+  def game_over_tick(args)
+    render_background(args)
+    render_scrim(args, SCRIM_ALPHA)
+
+    args.state.high_scores ||= load_high_scores
+    args.state.game_over_started_at ||= Kernel.tick_count
+    args.state.timer -= 1
+
+    try_save_high_score(args)
+
+    args.outputs.labels << game_over_labels(args)
+
+    if args.state.timer < -30 && fire_input?(args)
+      DR.reset
+    end
+  end
+
+  def gameplay_tick(args)
+    render_background(args)
+
+    args.state.player ||= {
+      x: PLAYER_HOME_X,
+      y: PLAYER_HOME_Y,
+      w: 100,
+      h: 80,
+      speed: 12,
+    }
+
+    args.state.player.path = dragon_sprite_path(0, PLAYER_DRAGON)
+
+    args.state.fireballs ||= []
+    args.state.enemy_fireballs ||= []
+    args.state.targets ||= []
+    args.state.next_spawn_at ||= 0
+    args.state.score ||= 0
+    args.state.timer ||= ROUND_DURATION
+    args.state.intro_started_at ||= Kernel.tick_count
+
+    if intro_playing?(args)
+      play_intro(args)
+      return
+    end
+
+    args.state.timer -= 1
+
+    if args.state.timer <= 0
+      end_game(args)
+      return
+    end
+
+    handle_player_movement(args)
+    maintain_enemy_population(args)
+
+    if fire_input?(args)
+      args.outputs.sounds << "sounds/fireball.wav"
+      args.state.fireballs << {
+        x: args.state.player.x + args.state.player.w - 12,
+        y: args.state.player.y + 10,
+        w: 32,
+        h: 32,
+        path: 'sprites/fireball.png',
+      }
+    end
+
+    args.state.fireballs.each do |fireball|
+      fireball.x += args.state.player.speed + 2
+
+      if fireball.x > args.grid.w
+        fireball.dead = true
+        next
       end
 
-      val = fbm sx, sy, sz, OCTAVES
+      args.state.targets.each do |target|
+        next if target.dead
 
-      if mask
-        dx = (x.fdiv(GRID_W - 1) - 0.5) * 2.0
-        dy = (y.fdiv(GRID_H - 1) - 0.5) * 2.0
-        d  = Math.sqrt(dx * dx + dy * dy)
-        d  = 1.0 if d > 1.0
-        val -= MASK_GAIN * (d**MASK_POWER)
+        if args.geometry.intersect_rect?(target, fireball)
+          args.outputs.sounds << "sounds/target.wav"
+          target.dead = true
+          fireball.dead = true
+          args.state.score += 1
+          break
+        end
+      end
+    end
+
+    args.state.targets.each do |target|
+      next if target.dead
+      next if target.mode == :entering
+      next if Kernel.tick_count < target.next_fire_at
+      target.next_fire_at = Kernel.tick_count + enemy_fire_delay
+      args.state.enemy_fireballs << spawn_enemy_fireball(target)
+    end
+
+    hitbox = player_hitbox(args.state.player)
+
+    args.state.enemy_fireballs.each do |fireball|
+      fireball.x -= ENEMY_FIREBALL_SPEED
+
+      if fireball.x + fireball.w < 0
+        fireball.dead = true
+        next
       end
 
-      field[row + x] = val
-    end
-  end
-
-  args.state.field = field
-end
-
-# Thresholds the cached field, then labels connected regions and keeps only
-# the largest. Everything else is marked DISCARDED rather than deleted, so
-# you can see what the flood fill threw away.
-def build_map args
-  field = args.state.field
-  t     = args.state.threshold
-  cells = Array.new(GRID_W * GRID_H, WALL)
-
-  1.upto(GRID_H - 2) do |y|
-    row = y * GRID_W
-    1.upto(GRID_W - 2) do |x|
-      cells[row + x] = FLOOR if field[row + x] > t
-    end
-  end
-
-  regions = find_regions cells
-  open    = 0
-  regions.each { |r| open += r.length }
-
-  largest_i = nil
-  regions.each_with_index do |r, i|
-    largest_i = i if largest_i.nil? || r.length > regions[largest_i].length
-  end
-
-  if args.state.cull && largest_i
-    regions.each_with_index do |r, i|
-      next if i == largest_i
-
-      r.each { |idx| cells[idx] = DISCARDED }
-    end
-  end
-
-  args.state.cells      = cells
-  args.state.regions    = regions.length
-  args.state.largest    = largest_i ? regions[largest_i].length : 0
-  args.state.open_cells = open
-end
-
-# Iterative 4-connected flood fill. Explicit stack, not recursion, because
-# mRuby will blow up on deep call chains.
-def find_regions cells
-  seen    = Array.new(GRID_W * GRID_H, false)
-  regions = []
-
-  GRID_H.times do |y|
-    row = y * GRID_W
-
-    GRID_W.times do |x|
-      start = row + x
-      next if seen[start]
-      next if cells[start] == WALL
-
-      region = []
-      stack  = [start]
-      seen[start] = true
-
-      until stack.empty?
-        i = stack.pop
-        region << i
-
-        cx = i % GRID_W
-        cy = i.idiv(GRID_W)
-
-        push_open stack, seen, cells, i - 1,      cx > 0
-        push_open stack, seen, cells, i + 1,      cx < GRID_W - 1
-        push_open stack, seen, cells, i - GRID_W, cy > 0
-        push_open stack, seen, cells, i + GRID_W, cy < GRID_H - 1
+      if args.geometry.intersect_rect?(hitbox, fireball)
+        end_game(args)
+        return
       end
-
-      regions << region
     end
-  end
 
-  regions
-end
+    args.state.targets.each do |target|
+      next if target.dead
 
-def push_open stack, seen, cells, i, in_bounds
-  return unless in_bounds
-  return if seen[i]
-  return if cells[i] == WALL
-
-  seen[i] = true
-  stack << i
-end
-
-# ------------------------------------------------------------- rendering
-
-# Draws every cell into an off-screen target exactly once per generation.
-# After this the main loop blits a single sprite, so a 7,000 cell map costs
-# one primitive per frame instead of seven thousand.
-def render_map args
-  cells = args.state.cells
-  show  = args.state.show_culled
-
-  args.outputs[:map].set w: GRID_W * CELL_PX,
-                         h: GRID_H * CELL_PX,
-                         background_color: [16, 18, 26]
-
-  GRID_H.times do |y|
-    row = y * GRID_W
-
-    GRID_W.times do |x|
-      state = cells[row + x]
-      next if state == WALL
-      next if state == DISCARDED && !show
-
-      if state == FLOOR
-        r, g, b = 232, 222, 196
+      if target.mode == :entering
+        rush_target(args, target)
       else
-        r, g, b = 104, 48, 58
+        wander_target(args, target)
       end
 
-      args.outputs[:map] << { x: x * CELL_PX,
-                              y: y * CELL_PX,
-                              w: CELL_PX,
-                              h: CELL_PX,
-                              path: :solid,
-                              r: r, g: g, b: b }
+      target.path = dragon_sprite_path(target.spawned_at, ENEMY_DRAGON)
     end
+
+    args.state.targets.reject! { |t| t.dead }
+    args.state.fireballs.reject! { |f| f.dead }
+    args.state.enemy_fireballs.reject! { |f| f.dead }
+
+    args.outputs.sprites << [
+      args.state.player,
+      args.state.fireballs,
+      args.state.enemy_fireballs,
+      args.state.targets,
+    ]
+
+    args.outputs.labels << hud_labels(args)
   end
-end
 
-def render args
-  args.outputs.background_color = [10, 11, 16]
-
-  args.outputs.sprites << { x: MAP_X,
-                            y: MAP_Y,
-                            w: GRID_W * CELL_PX,
-                            h: GRID_H * CELL_PX,
-                            path: :map }
-
-  render_hud args
-end
-
-def render_hud args
-  total = GRID_W * GRID_H
-
-  lines = [
-    ["PROCGEN HARNESS", 200, 200, 210],
-    ["", 0, 0, 0],
-    ["seed          #{args.state.seed}", 232, 222, 196],
-    ["threshold     #{args.state.threshold.round(2)}", 232, 222, 196],
-    ["", 0, 0, 0],
-    ["open          #{pct args.state.open_cells, total}%", 150, 190, 150],
-    ["regions       #{args.state.regions}", 150, 190, 150],
-    ["largest       #{pct args.state.largest, total}%", 150, 190, 150],
-    ["", 0, 0, 0],
-    ["[W] warp      #{on_off args.state.warp}", 150, 160, 200],
-    ["[I] island    #{on_off args.state.mask}", 150, 160, 200],
-    ["[F] cull      #{on_off args.state.cull}", 150, 160, 200],
-    ["[TAB] show    #{on_off args.state.show_culled}", 150, 160, 200],
-    ["", 0, 0, 0],
-    ["[R] reroll seed", 120, 120, 132],
-    ["arrows: seed / threshold", 120, 120, 132],
-    ["", 0, 0, 0],
-    ["red = discarded by flood fill", 120, 120, 132]
-  ]
-
-  y = 686
-  lines.each do |text, r, g, b|
-    unless text.empty?
-      args.outputs.labels << { x: HUD_X, y: y, text: text,
-                               r: r, g: g, b: b, size_px: 18 }
+  def tick args
+    if Kernel.tick_count == 1
+      args.audio[:music] = { input: "sounds/flight.ogg", looping: true }
     end
-    y -= 26
+
+    args.state.scene ||= "title"
+
+    send("#{args.state.scene}_tick", args)
   end
-end
-
-def pct n, total
-  (n.fdiv(total) * 100).round(1)
-end
-
-def on_off flag
-  flag ? "on" : "off"
-end
-
-def reset args
-  args.state = {}
 end
 
 DR.reset
