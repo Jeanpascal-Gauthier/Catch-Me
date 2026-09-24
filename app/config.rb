@@ -31,7 +31,7 @@ DISCARDED = 2
 TICK_SECONDS = 1.0.fdiv 60
 
 NPC_COUNT           = 3     # number of wandering NPCs to spawn
-NPC_SPEED           = 4.0   # tiles per second
+NPC_SPEED           = 16   # tiles per second
 NPC_DEBUG_WAYPOINTS = false # draw each NPC's private waypoint (dev only)
 
 $seed      ||= 1
