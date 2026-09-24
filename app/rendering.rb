@@ -45,7 +45,35 @@ def render args
                             h: GRID_H * CELL_PX,
                             path: :map }
 
+  render_npcs args
   render_hud args
+end
+
+# Draws each NPC as a plain red square, sized to the tile grid. Waypoints
+# are private state and only drawn when NPC_DEBUG_WAYPOINTS is on.
+def render_npcs args
+  args.state.npcs.each do |npc|
+    args.outputs.sprites << { x: MAP_X + npc[:x] * CELL_PX,
+                             y: MAP_Y + npc[:y] * CELL_PX,
+                             w: CELL_PX,
+                             h: CELL_PX,
+                             path: :solid,
+                             r: 220, g: 40, b: 40 }
+  end
+
+  return unless NPC_DEBUG_WAYPOINTS
+
+  args.state.npcs.each do |npc|
+    wx = npc[:waypoint] % GRID_W
+    wy = npc[:waypoint].idiv GRID_W
+
+    args.outputs.sprites << { x: MAP_X + wx * CELL_PX,
+                             y: MAP_Y + wy * CELL_PX,
+                             w: CELL_PX,
+                             h: CELL_PX,
+                             path: :solid,
+                             r: 60, g: 200, b: 255, a: 140 }
+  end
 end
 
 # Draws the sidebar of stats and control hints as a stack of labels.

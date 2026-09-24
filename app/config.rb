@@ -23,5 +23,16 @@ WALL      = 0
 FLOOR     = 1
 DISCARDED = 2
 
+# DragonRuby ticks at a fixed rate rather than handing game code a variable
+# frame delta, so TICK_SECONDS stands in for dt: moving some tiles/second
+# speed times TICK_SECONDS every tick is the fixed-timestep equivalent of
+# scaling by delta time -- it keeps speed independent of frame rate even
+# though it isn't reacting to a per-frame value, since DR doesn't expose one.
+TICK_SECONDS = 1.0.fdiv 60
+
+NPC_COUNT           = 3     # number of wandering NPCs to spawn
+NPC_SPEED           = 4.0   # tiles per second
+NPC_DEBUG_WAYPOINTS = false # draw each NPC's private waypoint (dev only)
+
 $seed      ||= 1
 $threshold ||= 0.02

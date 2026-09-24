@@ -3,7 +3,10 @@
 require_relative "config"
 require_relative "input"
 require_relative "generation"
+require_relative "pathfinding"
+require_relative "npc"
 require_relative "rendering"
+require_relative "tests"
 
 # DragonRuby calls this once on launch.
 def boot args
@@ -14,7 +17,12 @@ end
 def tick args
   init args
   handle_input args
+
+  rebuilding_map = args.state.field_dirty || args.state.map_dirty
   regenerate args
+  spawn_npcs args if args.state.npcs.nil? || rebuilding_map
+
+  update_npcs args
   render args
 end
 
