@@ -5,6 +5,7 @@ require_relative "input"
 require_relative "generation"
 require_relative "pathfinding"
 require_relative "npc"
+require_relative "camera"
 require_relative "rendering"
 require_relative "tests"
 
@@ -23,7 +24,9 @@ def tick args
   spawn_npcs args if args.state.npcs.nil? || rebuilding_map
 
   update_npcs args
+  update_camera args
   render args
+
 end
 
 # One-time setup of args.state, run on the first tick (and after a reset).
@@ -42,6 +45,8 @@ def init args
   args.state.regions     = 0
   args.state.largest     = 0
   args.state.open_count  = 0
+
+  init_camera args
 end
 
 # Clears state so the next tick's init rebuilds everything from scratch.

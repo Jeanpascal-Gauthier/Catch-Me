@@ -39,26 +39,27 @@ end
 def render args
   args.outputs.background_color = [10, 11, 16]
 
-  args.outputs.sprites << { x: MAP_X,
-                            y: MAP_Y,
-                            w: GRID_W * CELL_PX,
-                            h: GRID_H * CELL_PX,
-                            path: :map }
+  args.outputs[:scene].sprites << { x: 0,
+                                    y: 0,
+                                    w: GRID_W * CELL_PX,
+                                    h: GRID_H * CELL_PX,
+                                    path: :map }
 
   render_npcs args
   render_hud args
+  render_camera args
 end
 
 # Draws each NPC as a plain red square, sized to the tile grid. Waypoints
 # are private state and only drawn when NPC_DEBUG_WAYPOINTS is on.
 def render_npcs args
   args.state.npcs.each do |npc|
-    args.outputs.sprites << { x: MAP_X + npc[:x] * CELL_PX,
-                             y: MAP_Y + npc[:y] * CELL_PX,
-                             w: CELL_PX,
-                             h: CELL_PX,
-                             path: :solid,
-                             r: 220, g: 40, b: 40 }
+    args.outputs[:scene].sprites << { x: npc[:x] * CELL_PX,
+                                      y: npc[:y] * CELL_PX,
+                                      w: CELL_PX,
+                                      h: CELL_PX,
+                                      path: :solid,
+                                      r: 220, g: 40, b: 40 }
   end
 
   return unless NPC_DEBUG_WAYPOINTS
@@ -67,12 +68,12 @@ def render_npcs args
     wx = npc[:waypoint] % GRID_W
     wy = npc[:waypoint].idiv GRID_W
 
-    args.outputs.sprites << { x: MAP_X + wx * CELL_PX,
-                             y: MAP_Y + wy * CELL_PX,
-                             w: CELL_PX,
-                             h: CELL_PX,
-                             path: :solid,
-                             r: 60, g: 200, b: 255, a: 140 }
+    args.outputs[:scene].sprites << { x: wx * CELL_PX,
+                                      y: wy * CELL_PX,
+                                      w: CELL_PX,
+                                      h: CELL_PX,
+                                      path: :solid,
+                                      r: 60, g: 200, b: 255, a: 140 }
   end
 end
 

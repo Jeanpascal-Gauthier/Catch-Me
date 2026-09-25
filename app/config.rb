@@ -34,5 +34,9 @@ NPC_COUNT           = 3     # number of wandering NPCs to spawn
 NPC_SPEED           = 16   # tiles per second
 NPC_DEBUG_WAYPOINTS = false # draw each NPC's private waypoint (dev only)
 
+PLAYER_SPEED = 20
+TAG_COOLDOWN = 30
+TAG_RADIUS = 0.75
+
 $seed      ||= 1
 $threshold ||= 0.02
