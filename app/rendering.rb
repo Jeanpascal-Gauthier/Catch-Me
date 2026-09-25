@@ -70,15 +70,32 @@ def render_player args
                                     r: r, g: g, b: b }
 end
 
-# Blits the :scene target to the screen at the camera's position and zoom.
+# Blits the :scene target at the camera's position and zoom into a
+# VIEW_W x VIEW_H :viewport target, which clips it, then draws that pane
+# at MAP_X, MAP_Y so the game stays left of the HUD.
 def render_camera args
   scene = calc_scene_position args
 
-  args.outputs.sprites << { x: scene[:x],
-                            y: scene[:y],
-                            w: scene[:w],
-                            h: scene[:h],
-                            path: :scene }
+  # camera.rb centers its target on screen point (640, 300); shift that
+  # point to the middle of the pane instead.
+  offset_x = VIEW_W.half - 640
+  offset_y = VIEW_H.half - 300
+
+  args.outputs[:viewport].set w: VIEW_W,
+                              h: VIEW_H,
+                              background_color: [10, 11, 16]
+
+  args.outputs[:viewport].sprites << { x: scene[:x] + offset_x,
+                                       y: scene[:y] + offset_y,
+                                       w: scene[:w],
+                                       h: scene[:h],
+                                       path: :scene }
+
+  args.outputs.sprites << { x: MAP_X,
+                            y: MAP_Y,
+                            w: VIEW_W,
+                            h: VIEW_H,
+                            path: :viewport }
 end
 
 # Draws each NPC as a plain red square, sized to the tile grid. Waypoints

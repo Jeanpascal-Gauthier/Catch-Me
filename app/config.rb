@@ -6,6 +6,8 @@ CELL_PX = 8
 MAP_X   = 24
 MAP_Y   = 24
 HUD_X   = 724
+VIEW_W  = GRID_W * CELL_PX # on-screen play pane, anchored at MAP_X, MAP_Y
+VIEW_H  = GRID_H * CELL_PX
 
 # --- tune these, save, compare -----------------------------------------
 SPAN       = 0.9   # width of the sampled window in noise units. keep < 2.0
