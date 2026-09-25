@@ -60,12 +60,14 @@ def render_player args
   player = args.state.player
   return if player.nil?
 
+  r, g, b = player[:color]
+
   args.outputs[:scene].sprites << { x: player[:x] * CELL_PX,
                                     y: player[:y] * CELL_PX,
                                     w: CELL_PX,
                                     h: CELL_PX,
                                     path: :solid,
-                                    r: 90, g: 200, b: 255 }
+                                    r: r, g: g, b: b }
 end
 
 # Blits the :scene target to the screen at the camera's position and zoom.
@@ -83,12 +85,14 @@ end
 # are private state and only drawn when NPC_DEBUG_WAYPOINTS is on.
 def render_npcs args
   args.state.npcs.each do |npc|
+    r, g, b = npc[:color]
+
     args.outputs[:scene].sprites << { x: npc[:x] * CELL_PX,
                                       y: npc[:y] * CELL_PX,
                                       w: CELL_PX,
                                       h: CELL_PX,
                                       path: :solid,
-                                      r: 220, g: 40, b: 40 }
+                                      r: r, g: g, b: b }
   end
 
   return unless NPC_DEBUG_WAYPOINTS
@@ -129,7 +133,7 @@ def render_hud args
     ["wasd: move", 120, 120, 132],
     ["arrows: seed / threshold", 120, 120, 132],
     ["", 0, 0, 0],
-    ["red = discarded by flood fill", 120, 120, 132]
+    ["dark red tiles = discarded by flood fill", 120, 120, 132]
   ]
 
   y = 686

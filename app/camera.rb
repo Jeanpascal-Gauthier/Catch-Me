@@ -27,7 +27,7 @@ def update_camera args
                           Kernel.tick_count,
                           30,
                           :smooth_stop_quint
-        camera.x = camera.x +(target_x - camera.x) * lerp_percentage
+        camera.x = camera.x + (target_x - camera.x) * lerp_percentage
         camera.y = camera.y + (target_y - camera.y) * lerp_percentage
     else
         camera.x += (target_x - camera.x) * 0.2

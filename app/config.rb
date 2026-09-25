@@ -30,6 +30,14 @@ DISCARDED = 2
 # though it isn't reacting to a per-frame value, since DR doesn't expose one.
 TICK_SECONDS = 1.0.fdiv 60
 
+# One color per block so they stay tellable apart as control jumps between
+# them. The color belongs to the block, not to whoever is driving it. Wraps
+# if NPC_COUNT + 1 ever exceeds the palette.
+ENTITY_COLORS = [[214, 64, 64],    # red
+                 [86, 190, 96],    # green
+                 [76, 132, 235],   # blue
+                 [232, 198, 66]]   # yellow
+
 NPC_COUNT           = 3     # number of wandering NPCs to spawn
 NPC_SPEED           = 16   # tiles per second
 NPC_DEBUG_WAYPOINTS = false # draw each NPC's private waypoint (dev only)

@@ -27,6 +27,7 @@ def tick args
 
   update_npcs args
   update_player args
+  check_tag args
   update_camera args
   render args
 

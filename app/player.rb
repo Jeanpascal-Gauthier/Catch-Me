@@ -18,7 +18,11 @@ def spawn_player args
   idx   = pick_unused_tile accessible, taken
 
   args.state.player = { x: (idx % GRID_W).to_f,
-                        y: idx.idiv(GRID_W).to_f }
+                        y: idx.idiv(GRID_W).to_f,
+                        color: ENTITY_COLORS[NPC_COUNT % ENTITY_COLORS.length] }
+
+  args.state.tagged_at    = -TAG_COOLDOWN
+  args.state.immune_index = nil
 
   snap_camera args
 end
@@ -77,4 +81,64 @@ def floor_at? cells, x, y
   return false if cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H
 
   cells[cy * GRID_W + cx] == FLOOR
+end
+
+# Touching an NPC hands control to it. Fires no matter who closed the gap, so
+# an NPC wandering into you tags you just as well as you walking into it.
+def check_tag args
+  player = args.state.player
+  return if player.nil?
+
+  release_immunity args, player
+  return if Kernel.tick_count - args.state.tagged_at < TAG_COOLDOWN
+
+  args.state.npcs.each_with_index do |npc, i|
+    next if i == args.state.immune_index
+    next unless touching? player, npc
+
+    tag_swap args, i
+    return
+  end
+end
+
+# A swap leaves you standing on the block you just left, so it stays
+# untaggable until the two of you have moved apart -- otherwise control
+# would ping-pong between the pair whenever they're boxed in together.
+def release_immunity args, player
+  i = args.state.immune_index
+  return if i.nil?
+
+  args.state.immune_index = nil unless touching? player, args.state.npcs[i]
+end
+
+# Both blocks are one tile square and positioned by their corner, so their
+# corners are the same distance apart as their centers.
+def touching? a, b
+  dx = a[:x] - b[:x]
+  dy = a[:y] - b[:y]
+
+  Math.sqrt(dx * dx + dy * dy) < TAG_RADIUS
+end
+
+# Exchanges roles with the NPC at `index`: you take over its block, and the
+# one you were driving is handed back to the AI from where you left it.
+def tag_swap args, index
+  npc      = args.state.npcs[index]
+  player   = args.state.player
+  vacated  = { x: player[:x],
+               y: player[:y],
+               color: player[:color],
+               path: nil,
+               path_index: 0,
+               waypoint: 0 }
+
+  args.state.player = { x: npc[:x], y: npc[:y], color: npc[:color] }
+
+  assign_waypoint vacated, args.state.cells
+  args.state.npcs[index] = vacated
+
+  args.state.tagged_at    = Kernel.tick_count
+  args.state.immune_index = index
+
+  camera_switch args
 end

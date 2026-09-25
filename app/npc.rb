@@ -12,11 +12,12 @@ def spawn_npcs args
   cells.each_with_index { |c, i| accessible << i if c == FLOOR }
 
   chosen = []
-  npcs = Array.new(NPC_COUNT) do
+  npcs = Array.new(NPC_COUNT) do |i|
     idx = pick_unused_tile accessible, chosen
     chosen << idx
     { x: (idx % GRID_W).to_f,
       y: idx.idiv(GRID_W).to_f,
+      color: ENTITY_COLORS[i % ENTITY_COLORS.length],
       path: nil,
       path_index: 0,
       waypoint: idx }
