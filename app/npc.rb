@@ -1,11 +1,3 @@
-# Wandering NPC entities: spawning and movement toward private waypoints.
-# Each NPC is a plain Hash with keys :x, :y (tile-space position, floats),
-# :path (array of cell indices, or nil), :path_index, and :waypoint.
-
-# Builds NPC_COUNT entities on distinct random accessible (FLOOR) tiles and
-# gives each an initial waypoint + path. Called once at boot and again
-# whenever the map is regenerated (old positions/paths would otherwise point
-# at cells that no longer exist or are no longer walkable).
 def spawn_npcs args
   cells      = args.state.cells
   accessible = []
@@ -42,11 +34,12 @@ end
 # Advances every NPC along its precomputed path, re-waypointing on arrival.
 def update_npcs args
   cells = args.state.cells
-  args.state.npcs.each { |npc| update_npc npc, cells }
+  scale = time_scale args
+  args.state.npcs.each { |npc| update_npc npc, cells, scale }
 end
 
-def update_npc npc, cells
-  remaining = NPC_SPEED * TICK_SECONDS
+def update_npc npc, cells, scale
+  remaining = NPC_SPEED * TICK_SECONDS * scale
 
   while remaining > 0 && npc[:path] && npc[:path_index] < npc[:path].length
     target = npc[:path][npc[:path_index]]

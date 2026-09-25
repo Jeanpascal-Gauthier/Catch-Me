@@ -35,7 +35,7 @@ def update_player args
   return if dir.nil?
 
   cells = args.state.cells
-  step  = PLAYER_SPEED * TICK_SECONDS
+  step  = PLAYER_SPEED * TICK_SECONDS * time_scale(args)
 
   # Each axis is resolved separately so walking into a wall at an angle
   # slides along it rather than stopping dead.
@@ -81,6 +81,17 @@ def floor_at? cells, x, y
   return false if cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H
 
   cells[cy * GRID_W + cx] == FLOOR
+end
+
+# Everything crawls for a few ticks after a tag, giving you a beat to register
+# that control moved before play resumes. Ramps back to full speed rather than
+# popping, so the handoff reads as one motion.
+def time_scale args
+  elapsed = Kernel.tick_count - args.state.tagged_at
+  return 1.0 if elapsed >= TAG_SLOWMO_TICKS
+
+  TAG_SLOWMO_FACTOR +
+    (1.0 - TAG_SLOWMO_FACTOR) * elapsed.fdiv(TAG_SLOWMO_TICKS)
 end
 
 # Touching an NPC hands control to it. Fires no matter who closed the gap, so

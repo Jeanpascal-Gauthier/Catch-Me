@@ -1,15 +1,15 @@
 # Procgen configuration and shared cell states.
-
 GRID_W  = 84
 GRID_H  = 84
 CELL_PX = 8
-MAP_X   = 24
-MAP_Y   = 24
-HUD_X   = 724
-VIEW_W  = GRID_W * CELL_PX # on-screen play pane, anchored at MAP_X, MAP_Y
-VIEW_H  = GRID_H * CELL_PX
 
-# --- tune these, save, compare -----------------------------------------
+MAP_X   = 16
+MAP_Y   = 16
+VIEW_W  = 1072             # play pane, anchored at MAP_X, MAP_Y
+VIEW_H  = 688
+HUD_X   = 1104             # narrow strip between the pane and the screen edge
+
+# -----------------------------------------------------------------------
 SPAN       = 0.9   # width of the sampled window in noise units. keep < 2.0
 LACUNARITY = 4.0   # frequency multiplier per octave
 GAIN       = 0.45  # amplitude multiplier per octave
@@ -25,28 +25,26 @@ WALL      = 0
 FLOOR     = 1
 DISCARDED = 2
 
-# DragonRuby ticks at a fixed rate rather than handing game code a variable
-# frame delta, so TICK_SECONDS stands in for dt: moving some tiles/second
-# speed times TICK_SECONDS every tick is the fixed-timestep equivalent of
-# scaling by delta time -- it keeps speed independent of frame rate even
-# though it isn't reacting to a per-frame value, since DR doesn't expose one.
 TICK_SECONDS = 1.0.fdiv 60
 
-# One color per block so they stay tellable apart as control jumps between
-# them. The color belongs to the block, not to whoever is driving it. Wraps
-# if NPC_COUNT + 1 ever exceeds the palette.
 ENTITY_COLORS = [[214, 64, 64],    # red
                  [86, 190, 96],    # green
                  [76, 132, 235],   # blue
                  [232, 198, 66]]   # yellow
 
-NPC_COUNT           = 3     # number of wandering NPCs to spawn
-NPC_SPEED           = 16   # tiles per second
-NPC_DEBUG_WAYPOINTS = false # draw each NPC's private waypoint (dev only)
+NPC_COUNT           = 3     
+NPC_SPEED           = 16   
+NPC_DEBUG_WAYPOINTS = false
 
 PLAYER_SPEED = 20
-TAG_COOLDOWN = 30
+
+TAG_COOLDOWN = 60
 TAG_RADIUS = 0.75
+
+# How a tag hands over, tuned so the swap reads rather than just happening.
+CAMERA_SWITCH_TICKS = 30   # camera eases to the new block over this long
+TAG_SLOWMO_TICKS    = 10   # everything crawls this long after a tag
+TAG_SLOWMO_FACTOR   = 0.2  # speed multiplier at the instant of the tag
 
 $seed      ||= 1
 $threshold ||= 0.02

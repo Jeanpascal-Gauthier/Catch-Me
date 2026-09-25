@@ -57,9 +57,10 @@ class TagTests
     { state: { cells: cells,
                player: player,
                npcs: npcs,
+               camera: { x: 0.0, y: 0.0 },
                tagged_at: -TAG_COOLDOWN,
                immune_index: nil,
-               switched_at: -30 } }
+               switched_at: -CAMERA_SWITCH_TICKS } }
   end
 
   def npc x, y, color = [1, 2, 3]
@@ -84,6 +85,55 @@ class TagTests
 
     assert.equal! w.state.player[:color], [1, 2, 3], "player takes the tagged block's color"
     assert.equal! w.state.npcs[0][:color], [9, 9, 9], "vacated block keeps the color it had"
+  end
+
+  def test_slowmo_is_strongest_at_the_instant_of_a_tag args, assert
+    w = { state: { tagged_at: Kernel.tick_count } }
+
+    assert.equal! time_scale(w), TAG_SLOWMO_FACTOR
+  end
+
+  def test_slowmo_is_gone_once_its_window_closes args, assert
+    w = { state: { tagged_at: Kernel.tick_count - TAG_SLOWMO_TICKS } }
+
+    assert.equal! time_scale(w), 1.0
+  end
+
+  def test_flash_blows_out_to_white_on_the_tag args, assert
+    w = { state: { tagged_at: Kernel.tick_count } }
+
+    assert.equal! tag_flash_color(w, [10, 20, 30]), [255, 255, 255]
+  end
+
+  def test_flash_is_back_to_the_block_color_after_the_cooldown args, assert
+    w = { state: { tagged_at: Kernel.tick_count - TAG_COOLDOWN } }
+
+    assert.equal! tag_flash_color(w, [10, 20, 30]), [10, 20, 30]
+  end
+
+  # immune_index only covers the block you swapped with, so the grace window
+  # is the only thing stopping a second NPC standing right there from taking
+  # control straight back.
+  def test_grace_window_blocks_a_different_npc_tagging_back args, assert
+    w = world({ x: 5.0, y: 5.0, color: [9, 9, 9] },
+              [npc(5.2, 5.0), npc(5.1, 5.0)])
+
+    check_tag w
+    landed = w.state.player[:x]
+    check_tag w
+
+    assert.equal! w.state.player[:x], landed, "nothing should tag during the grace window"
+  end
+
+  def test_a_different_npc_can_tag_once_the_grace_window_passes args, assert
+    w = world({ x: 5.0, y: 5.0, color: [9, 9, 9] },
+              [npc(5.2, 5.0), npc(5.1, 5.0)])
+
+    check_tag w
+    w.state.tagged_at = Kernel.tick_count - TAG_COOLDOWN
+    check_tag w
+
+    assert.equal! w.state.player[:x], 5.1, "the second NPC should tag once the window closes"
   end
 
   def test_no_swap_when_out_of_range args, assert

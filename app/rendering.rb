@@ -55,38 +55,60 @@ def render args
   render_camera args
 end
 
-# Drawn after the NPCs so the player is never hidden behind one.
+# Drawn after the NPCs so the player is never hidden behind one. The white
+# ring marks whichever block you are driving -- without it a tag leaves you
+# guessing which one you just became.
 def render_player args
   player = args.state.player
   return if player.nil?
 
-  r, g, b = player[:color]
+  r, g, b = tag_flash_color args, player[:color]
 
-  args.outputs[:scene].sprites << { x: player[:x] * CELL_PX,
-                                    y: player[:y] * CELL_PX,
+  # Snapped to whole scene pixels, and two pixels thick rather than one. The
+  # scene is zoomed by camera.scale and again by the display's DPI, so a
+  # one-pixel ring lands on a fraction of a device pixel and resolves thicker
+  # on one side than the other. Two pixels survive that rounding evenly.
+  x = (player[:x] * CELL_PX).round
+  y = (player[:y] * CELL_PX).round
+
+  args.outputs[:scene].sprites << { x: x - 2,
+                                    y: y - 2,
+                                    w: CELL_PX + 4,
+                                    h: CELL_PX + 4,
+                                    path: :solid,
+                                    r: 255, g: 255, b: 255 }
+
+  args.outputs[:scene].sprites << { x: x,
+                                    y: y,
                                     w: CELL_PX,
                                     h: CELL_PX,
                                     path: :solid,
                                     r: r, g: g, b: b }
 end
 
-# Blits the :scene target at the camera's position and zoom into a
-# VIEW_W x VIEW_H :viewport target, which clips it, then draws that pane
-# at MAP_X, MAP_Y so the game stays left of the HUD.
+# Blows the block out to white at the instant of a tag and fades it back to
+# its own color as the cooldown runs down, so the handoff is unmissable and
+# you can see when you're free to tag again.
+def tag_flash_color args, color
+  elapsed = Kernel.tick_count - args.state.tagged_at
+  return color if elapsed >= TAG_COOLDOWN
+
+  blend = 1.0 - elapsed.fdiv(TAG_COOLDOWN)
+  color.map { |c| (c + (255 - c) * blend).to_i }
+end
+
+# Blits the :scene target into a VIEW_W x VIEW_H :viewport target, which
+# clips it, then draws that pane at MAP_X, MAP_Y so the game stays left of
+# the HUD. calc_scene_position works in pane coordinates already.
 def render_camera args
   scene = calc_scene_position args
-
-  # camera.rb centers its target on screen point (640, 300); shift that
-  # point to the middle of the pane instead.
-  offset_x = VIEW_W.half - 640
-  offset_y = VIEW_H.half - 300
 
   args.outputs[:viewport].set w: VIEW_W,
                               h: VIEW_H,
                               background_color: [10, 11, 16]
 
-  args.outputs[:viewport].sprites << { x: scene[:x] + offset_x,
-                                       y: scene[:y] + offset_y,
+  args.outputs[:viewport].sprites << { x: scene[:x],
+                                       y: scene[:y],
                                        w: scene[:w],
                                        h: scene[:h],
                                        path: :scene }
@@ -132,34 +154,34 @@ def render_hud args
   total = GRID_W * GRID_H
 
   lines = [
-    ["PROCGEN HARNESS", 200, 200, 210],
+    ["PROCGEN", 200, 200, 210],
     ["", 0, 0, 0],
-    ["seed          #{args.state.seed}", 232, 222, 196],
-    ["threshold     #{args.state.threshold.round(2)}", 232, 222, 196],
+    ["seed    #{args.state.seed}", 232, 222, 196],
+    ["thresh  #{args.state.threshold.round(2)}", 232, 222, 196],
     ["", 0, 0, 0],
-    ["open          #{pct args.state.open_count, total}%", 150, 190, 150],
-    ["regions       #{args.state.regions}", 150, 190, 150],
-    ["largest       #{pct args.state.largest, total}%", 150, 190, 150],
+    ["open    #{pct args.state.open_count, total}%", 150, 190, 150],
+    ["regions #{args.state.regions}", 150, 190, 150],
+    ["largest #{pct args.state.largest, total}%", 150, 190, 150],
     ["", 0, 0, 0],
-    ["[O] warp      #{on_off args.state.warp}", 150, 160, 200],
-    ["[I] island    #{on_off args.state.mask}", 150, 160, 200],
-    ["[F] cull      #{on_off args.state.cull}", 150, 160, 200],
-    ["[TAB] show    #{on_off args.state.show_culled}", 150, 160, 200],
+    ["[O] warp   #{on_off args.state.warp}", 150, 160, 200],
+    ["[I] island #{on_off args.state.mask}", 150, 160, 200],
+    ["[F] cull   #{on_off args.state.cull}", 150, 160, 200],
+    ["[TAB] show #{on_off args.state.show_culled}", 150, 160, 200],
     ["", 0, 0, 0],
-    ["[R] reroll seed", 120, 120, 132],
-    ["wasd: move", 120, 120, 132],
-    ["arrows: seed / threshold", 120, 120, 132],
+    ["[R] reroll", 120, 120, 132],
+    ["wasd move", 120, 120, 132],
+    ["arrows tune", 120, 120, 132],
     ["", 0, 0, 0],
-    ["dark red tiles = discarded by flood fill", 120, 120, 132]
+    ["dark red = culled", 120, 120, 132]
   ]
 
-  y = 686
+  y = 690
   lines.each do |text, r, g, b|
     unless text.empty?
       args.outputs.labels << { x: HUD_X, y: y, text: text,
-                               r: r, g: g, b: b, size_px: 18 }
+                               r: r, g: g, b: b, size_px: 20 }
     end
-    y -= 26
+    y -= 28
   end
 end
 
