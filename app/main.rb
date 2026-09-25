@@ -5,6 +5,7 @@ require_relative "input"
 require_relative "generation"
 require_relative "pathfinding"
 require_relative "npc"
+require_relative "player"
 require_relative "camera"
 require_relative "rendering"
 require_relative "tests"
@@ -22,8 +23,10 @@ def tick args
   rebuilding_map = args.state.field_dirty || args.state.map_dirty
   regenerate args
   spawn_npcs args if args.state.npcs.nil? || rebuilding_map
+  spawn_player args if args.state.player.nil? || rebuilding_map
 
   update_npcs args
+  update_player args
   update_camera args
   render args
 

@@ -39,6 +39,10 @@ end
 def render args
   args.outputs.background_color = [10, 11, 16]
 
+  args.outputs[:scene].set w: GRID_W * CELL_PX,
+                           h: GRID_H * CELL_PX,
+                           background_color: [10, 11, 16]
+
   args.outputs[:scene].sprites << { x: 0,
                                     y: 0,
                                     w: GRID_W * CELL_PX,
@@ -46,8 +50,33 @@ def render args
                                     path: :map }
 
   render_npcs args
+  render_player args
   render_hud args
   render_camera args
+end
+
+# Drawn after the NPCs so the player is never hidden behind one.
+def render_player args
+  player = args.state.player
+  return if player.nil?
+
+  args.outputs[:scene].sprites << { x: player[:x] * CELL_PX,
+                                    y: player[:y] * CELL_PX,
+                                    w: CELL_PX,
+                                    h: CELL_PX,
+                                    path: :solid,
+                                    r: 90, g: 200, b: 255 }
+end
+
+# Blits the :scene target to the screen at the camera's position and zoom.
+def render_camera args
+  scene = calc_scene_position args
+
+  args.outputs.sprites << { x: scene[:x],
+                            y: scene[:y],
+                            w: scene[:w],
+                            h: scene[:h],
+                            path: :scene }
 end
 
 # Draws each NPC as a plain red square, sized to the tile grid. Waypoints
@@ -91,12 +120,13 @@ def render_hud args
     ["regions       #{args.state.regions}", 150, 190, 150],
     ["largest       #{pct args.state.largest, total}%", 150, 190, 150],
     ["", 0, 0, 0],
-    ["[W] warp      #{on_off args.state.warp}", 150, 160, 200],
+    ["[O] warp      #{on_off args.state.warp}", 150, 160, 200],
     ["[I] island    #{on_off args.state.mask}", 150, 160, 200],
     ["[F] cull      #{on_off args.state.cull}", 150, 160, 200],
     ["[TAB] show    #{on_off args.state.show_culled}", 150, 160, 200],
     ["", 0, 0, 0],
     ["[R] reroll seed", 120, 120, 132],
+    ["wasd: move", 120, 120, 132],
     ["arrows: seed / threshold", 120, 120, 132],
     ["", 0, 0, 0],
     ["red = discarded by flood fill", 120, 120, 132]

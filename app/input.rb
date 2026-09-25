@@ -17,7 +17,8 @@ def handle_input args
     set_threshold args, args.state.threshold - 0.01
   end
 
-  if k.key_down.w
+  # Not W: that moves the player.
+  if k.key_down.o
     args.state.warp = !args.state.warp
     args.state.field_dirty = true
   end

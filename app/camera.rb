@@ -1,5 +1,6 @@
 def init_camera args
 
+    args.state.camera                   ||= {}
     args.state.camera.x                 ||= 640
     args.state.camera.y                 ||= 300
     args.state.camera.show_empty_space  ||= :yes
