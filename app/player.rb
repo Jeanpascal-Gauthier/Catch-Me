@@ -1,9 +1,3 @@
-# The player-controlled entity. Like an NPC it is a plain Hash with :x, :y
-# in tile space, but it has no path: it moves from keyboard input instead.
-
-# Places the player on a random FLOOR tile, avoiding tiles the NPCs already
-# occupy. Runs at boot and again on every map rebuild, since the old position
-# may be inside a wall once the map changes.
 def spawn_player args
   cells      = args.state.cells
   accessible = []
@@ -46,8 +40,6 @@ def update_player args
   player[:y] = ny if player_fits? cells, player[:x], ny
 end
 
-# WASD as a unit vector, so diagonals aren't faster than the cardinals.
-# Arrow keys are deliberately left alone -- they tune seed and threshold.
 def player_direction args
   k  = args.inputs.keyboard
   dx = 0.0
@@ -64,8 +56,6 @@ def player_direction args
   [dx / length, dy / length]
 end
 
-# The player fills one tile, so a position between tiles overlaps up to four
-# of them. All four corners have to be clear for the move to be allowed.
 def player_fits? cells, x, y
   inset = 0.02
 
@@ -122,8 +112,6 @@ def release_immunity args, player
   args.state.immune_index = nil unless touching? player, args.state.npcs[i]
 end
 
-# Both blocks are one tile square and positioned by their corner, so their
-# corners are the same distance apart as their centers.
 def touching? a, b
   dx = a[:x] - b[:x]
   dy = a[:y] - b[:y]
@@ -131,8 +119,6 @@ def touching? a, b
   Math.sqrt(dx * dx + dy * dy) < TAG_RADIUS
 end
 
-# Exchanges roles with the NPC at `index`: you take over its block, and the
-# one you were driving is handed back to the AI from where you left it.
 def tag_swap args, index
   npc      = args.state.npcs[index]
   player   = args.state.player

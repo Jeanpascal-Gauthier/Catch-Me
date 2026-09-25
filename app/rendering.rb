@@ -1,5 +1,3 @@
-# Cached map rendering and HUD.
-
 # Draws every cell into an off-screen target exactly once per generation.
 # After this the main loop blits a single sprite, so a 7,000 cell map costs
 # one primitive per frame instead of seven thousand.

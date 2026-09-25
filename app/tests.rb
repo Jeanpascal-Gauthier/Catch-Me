@@ -1,9 +1,3 @@
-# Sanity checks for the Pathfinding module (see pathfinding.rb).
-#
-# DragonRuby's built-in test runner picks these up automatically: any class
-# ending in "Tests" with methods starting "test_" runs when the file is
-# saved while the game is running, or on demand from the console with
-# `$tests.start`.
 class PathfindingTests
   def test_find_path_straight_line args, assert
     cells = Array.new(GRID_W * GRID_H, WALL)

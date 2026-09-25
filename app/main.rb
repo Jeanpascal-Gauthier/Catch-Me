@@ -1,5 +1,3 @@
-# Procgen harness entry point.
-
 require_relative "config"
 require_relative "input"
 require_relative "generation"

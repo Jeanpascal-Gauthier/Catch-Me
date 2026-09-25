@@ -1,13 +1,3 @@
-# Grid pathfinding over the walkable (FLOOR) tiles produced by proc-gen.
-#
-# Kept independent of both generation.rb and rendering.rb: anything that
-# owns a `cells` array (NPCs today, the player later) can use this without
-# pulling in map-building or drawing code. Movement is 4-directional to
-# match the connectivity the generator itself uses when flood-filling
-# regions (see find_regions in generation.rb) -- allowing diagonal steps
-# here would let something cut across a wall corner that the generator
-# never actually treated as connected.
-
 # Simple binary min-heap of [score, node] pairs, used as the A* open set.
 class MinHeap
   def initialize
